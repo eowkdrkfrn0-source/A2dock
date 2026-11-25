@@ -1,1 +1,980 @@
+name: Build A2 Dock APK
 
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Generate project
+        run: |
+          mkdir -p proj && cd proj
+          cat > 'settings.gradle.kts' <<'TALLY_EOF'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "A2Dock"
+          include(":app")
+          TALLY_EOF
+          cat > 'build.gradle.kts' <<'TALLY_EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          TALLY_EOF
+          cat > 'gradle.properties' <<'TALLY_EOF'
+          android.useAndroidX=true
+          org.gradle.jvmargs=-Xmx4g
+          kotlin.code.style=official
+          TALLY_EOF
+          mkdir -p "app"
+          cat > 'app/build.gradle.kts' <<'TALLY_EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+          android {
+              namespace = "com.nakyung.a2dock"
+              compileSdk = 34
+              defaultConfig {
+                  applicationId = "com.nakyung.a2dock"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 100 + (System.getenv("GITHUB_RUN_NUMBER") ?: "0").toInt()
+                  versionName = "1." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
+              }
+              signingConfigs {
+                  create("fixed") {
+                      storeFile = file("a2dock.jks")
+                      storePassword = "a2dock1234"
+                      keyAlias = "a2dock"
+                      keyPassword = "a2dock1234"
+                  }
+              }
+              buildTypes {
+                  getByName("release") {
+                      isMinifyEnabled = false
+                      signingConfig = signingConfigs.getByName("fixed")
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+              lint {
+                  checkReleaseBuilds = false
+                  abortOnError = false
+              }
+              packaging {
+                  resources { excludes += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*", "META-INF/*.kotlin_module") }
+              }
+          }
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.activity:activity-ktx:1.9.2")
+          }
+          TALLY_EOF
+          mkdir -p "app/src/main"
+          cat > 'app/src/main/AndroidManifest.xml' <<'TALLY_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+              <uses-permission android:name="android.permission.VIBRATE" />
+              <application
+                  android:label="A2 도크"
+                  android:icon="@drawable/ic_launcher"
+                  android:roundIcon="@drawable/ic_launcher"
+                  android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:screenOrientation="portrait"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <provider
+                      android:name="androidx.core.content.FileProvider"
+                      android:authorities="com.nakyung.a2dock.files"
+                      android:exported="false"
+                      android:grantUriPermissions="true">
+                      <meta-data
+                          android:name="android.support.FILE_PROVIDER_PATHS"
+                          android:resource="@xml/paths" />
+                  </provider>
+              </application>
+          </manifest>
+          TALLY_EOF
+          mkdir -p "app/src/main/res/xml"
+          cat > 'app/src/main/res/xml/paths.xml' <<'TALLY_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths><cache-path name="c" path="." /></paths>
+          TALLY_EOF
+          mkdir -p "app/src/main/res/drawable"
+          cat > 'app/src/main/res/drawable/ic_launcher_bg.xml' <<'TALLY_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <gradient android:angle="315" android:startColor="#1E40AF" android:endColor="#0D9488" android:type="linear" />
+          </shape>
+          TALLY_EOF
+          mkdir -p "app/src/main/res/drawable"
+          cat > 'app/src/main/res/drawable/ic_launcher_fg.xml' <<'TALLY_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+              <path android:fillColor="#33000000" android:pathData="M30,30h22v50h-22z M56,30h22v50h-22z" />
+              <path android:fillColor="#1D6FD1" android:pathData="M30,28h22v14h-22z" />
+              <path android:fillColor="#00000000" android:strokeColor="#6EE28C" android:strokeWidth="2" android:pathData="M31,45h20v12h-20z" />
+              <path android:fillColor="#F59E0B" android:pathData="M30,60h22v18h-22z" />
+              <path android:fillColor="#10AA96" android:pathData="M56,28h22v24h-22z" />
+              <path android:fillColor="#BE185D" android:pathData="M56,55h22v10h-22z" />
+              <path android:fillColor="#7C3AED" android:pathData="M56,68h22v10h-22z" />
+              <path android:fillColor="#FFFFFF" android:pathData="M28,82h52v3h-52z" />
+          </vector>
+          TALLY_EOF
+          mkdir -p "app/src/main/res/drawable"
+          cat > 'app/src/main/res/drawable/ic_launcher.xml' <<'TALLY_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+              <path android:fillColor="#1E40AF" android:pathData="M54,4 a50,50 0 1,0 0.01,0 Z" />
+              <path android:fillColor="#33000000" android:pathData="M30,30h22v50h-22z M56,30h22v50h-22z" />
+              <path android:fillColor="#1D6FD1" android:pathData="M30,28h22v14h-22z" />
+              <path android:fillColor="#00000000" android:strokeColor="#6EE28C" android:strokeWidth="2" android:pathData="M31,45h20v12h-20z" />
+              <path android:fillColor="#F59E0B" android:pathData="M30,60h22v18h-22z" />
+              <path android:fillColor="#10AA96" android:pathData="M56,28h22v24h-22z" />
+              <path android:fillColor="#BE185D" android:pathData="M56,55h22v10h-22z" />
+              <path android:fillColor="#7C3AED" android:pathData="M56,68h22v10h-22z" />
+              <path android:fillColor="#FFFFFF" android:pathData="M28,82h52v3h-52z" />
+          </vector>
+          TALLY_EOF
+          mkdir -p "app/src/main/res/drawable-anydpi-v26"
+          cat > 'app/src/main/res/drawable-anydpi-v26/ic_launcher.xml' <<'TALLY_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@drawable/ic_launcher_bg" />
+              <foreground android:drawable="@drawable/ic_launcher_fg" />
+          </adaptive-icon>
+          TALLY_EOF
+          mkdir -p "app/src/main/java/com/nakyung/a2dock"
+          cat > 'app/src/main/java/com/nakyung/a2dock/MainActivity.kt' <<'TALLY_EOF'
+          package com.nakyung.a2dock
+
+          import android.app.AlertDialog
+          import android.content.Intent
+          import android.content.res.ColorStateList
+          import android.graphics.Color
+          import android.graphics.Typeface
+          import android.graphics.drawable.GradientDrawable
+          import android.graphics.drawable.RippleDrawable
+          import android.net.Uri
+          import android.os.Build
+          import android.os.Bundle
+          import android.provider.Settings
+          import android.text.Editable
+          import android.text.InputType
+          import android.text.TextWatcher
+          import android.view.Gravity
+          import android.view.View
+          import android.view.ViewGroup
+          import android.view.WindowManager
+          import android.widget.Button
+          import android.widget.EditText
+          import android.widget.LinearLayout
+          import android.widget.ScrollView
+          import android.widget.TextView
+          import android.widget.Toast
+          import androidx.activity.ComponentActivity
+          import androidx.activity.OnBackPressedCallback
+          import androidx.core.content.FileProvider
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.io.File
+          import java.text.SimpleDateFormat
+          import java.util.Date
+          import java.util.Locale
+
+          /** 한 칸: B/L 또는 빈자리 */
+          class Slot(
+              var gap: Boolean,
+              var bl: String = "",
+              var pallets: Int = 0,
+              var lines: Int = 1,
+              var memo: String = "",
+              var date: String = ""
+          )
+
+          class MainActivity : ComponentActivity() {
+
+              // ---------- 데이터 ----------
+              private val left = mutableListOf<Slot>()
+              private val right = mutableListOf<Slot>()
+              private val history = mutableListOf<String>()      // "시각|구분|B/L|파레트|줄|공간|메모"
+              private val undoStack = ArrayList<String>()
+              private var screen = "main"
+              private var query = ""
+              private var mainScroll: ScrollView? = null
+
+              // ---------- 색 ----------
+              private val BG = Color.rgb(16, 18, 23)
+              private val CARD = Color.rgb(29, 33, 41)
+              private val FIELD = Color.rgb(40, 45, 56)
+              private val PRIMARY = Color.rgb(47, 128, 237)
+              private val TEAL = Color.rgb(16, 170, 150)
+              private val DANGER = Color.rgb(217, 83, 61)
+              private val GREY_BTN = Color.rgb(56, 63, 76)
+              private val GREEN = Color.rgb(110, 226, 140)
+              private val GOLD = Color.rgb(255, 205, 90)
+              private val SUB = Color.rgb(160, 168, 184)
+              private val PALETTE = intArrayOf(
+                  Color.rgb(29, 111, 209), Color.rgb(194, 65, 12), Color.rgb(124, 58, 237), Color.rgb(15, 143, 126),
+                  Color.rgb(180, 83, 9), Color.rgb(14, 116, 144), Color.rgb(190, 24, 93), Color.rgb(77, 124, 15),
+                  Color.rgb(30, 64, 175), Color.rgb(157, 23, 77), Color.rgb(124, 45, 18), Color.rgb(71, 85, 105)
+              )
+              private val LINE_DP = 30
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                  window.statusBarColor = BG
+                  window.navigationBarColor = BG
+                  load()
+                  onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+                      override fun handleOnBackPressed() { if (screen == "main") finish() else showMain() }
+                  })
+                  showMain()
+                  checkUpdate(silent = true)
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  val pa = pendingApk
+                  if (pa != null && (Build.VERSION.SDK_INT < 26 || packageManager.canRequestPackageInstalls())) { pendingApk = null; installApk(pa) }
+              }
+
+              // ======================= UI 헬퍼 =======================
+              private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+              private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
+              private fun now(): String = SimpleDateFormat("MM/dd HH:mm", Locale.KOREA).format(Date())
+
+              private fun round(color: Int, r: Int = 12, stroke: Int? = null, dashed: Boolean = false): GradientDrawable =
+                  GradientDrawable().apply {
+                      setColor(color); cornerRadius = dp(r).toFloat()
+                      if (stroke != null) {
+                          if (dashed) setStroke(dp(2), stroke, dp(6).toFloat(), dp(4).toFloat()) else setStroke(dp(2), stroke)
+                      }
+                  }
+
+              private fun label(s: String, size: Float = 15f, color: Int = Color.WHITE, bold: Boolean = false): TextView =
+                  TextView(this).apply {
+                      text = s; textSize = size; setTextColor(color)
+                      if (bold) setTypeface(typeface, Typeface.BOLD)
+                      setPadding(0, dp(3), 0, dp(3))
+                  }
+
+              private fun btn(s: String, color: Int = GREY_BTN, onClick: () -> Unit): Button =
+                  Button(this).apply {
+                      text = s; textSize = 16f; isAllCaps = false
+                      setTextColor(Color.WHITE); setTypeface(typeface, Typeface.BOLD)
+                      background = RippleDrawable(ColorStateList.valueOf(Color.argb(60, 255, 255, 255)), round(color, 12), null)
+                      stateListAnimator = null
+                      minHeight = dp(50)
+                      setPadding(dp(8), dp(6), dp(8), dp(6))
+                      layoutParams = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(4), 0, dp(4)) }
+                      setOnClickListener { onClick() }
+                  }
+
+              private fun field(hint: String, value: String, numeric: Boolean = false): EditText =
+                  EditText(this).apply {
+                      this.hint = hint; setText(value); textSize = 18f
+                      setTextColor(Color.WHITE); setHintTextColor(Color.rgb(110, 118, 134))
+                      background = round(FIELD, 10)
+                      setPadding(dp(12), dp(10), dp(12), dp(10))
+                      inputType = if (numeric) InputType.TYPE_CLASS_NUMBER else (InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
+                      layoutParams = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(3), 0, dp(6)) }
+                  }
+
+              private fun row(vararg views: View): LinearLayout =
+                  LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      views.forEachIndexed { i, v ->
+                          addView(v, LinearLayout.LayoutParams(0, -2, 1f).apply {
+                              setMargins(if (i == 0) 0 else dp(4), dp(3), if (i == views.lastIndex) 0 else dp(4), dp(3))
+                          })
+                      }
+                  }
+
+              private fun card(): LinearLayout = LinearLayout(this).apply {
+                  orientation = LinearLayout.VERTICAL
+                  background = round(CARD, 16)
+                  setPadding(dp(14), dp(12), dp(14), dp(12))
+                  layoutParams = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(6), 0, dp(6)) }
+              }
+
+              private fun vbox(): LinearLayout = LinearLayout(this).apply {
+                  orientation = LinearLayout.VERTICAL
+                  setPadding(dp(14), dp(14), dp(14), dp(20))
+                  setBackgroundColor(BG)
+              }
+
+              private fun page(root: LinearLayout) {
+                  setContentView(ScrollView(this).apply { setBackgroundColor(BG); isFillViewport = true; addView(root) })
+              }
+
+              private fun topBar(title: String, color: Int): LinearLayout = LinearLayout(this).apply {
+                  orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                  addView(Button(this@MainActivity).apply {
+                      text = "←"; textSize = 20f; setTextColor(Color.WHITE)
+                      background = round(CARD, 12); stateListAnimator = null
+                      setOnClickListener { showMain() }
+                  }, LinearLayout.LayoutParams(dp(48), dp(48)))
+                  addView(label("  $title", 22f, Color.WHITE, true), LinearLayout.LayoutParams(0, -2, 1f))
+                  addView(label("A2 도크", 12f, Color.WHITE, true).apply {
+                      background = round(color, 20); setPadding(dp(10), dp(4), dp(10), dp(4))
+                  })
+              }
+
+              private fun watcher(f: () -> Unit) = object : TextWatcher {
+                  override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                  override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                  override fun afterTextChanged(s: Editable?) { f() }
+              }
+
+              private fun colorOf(bl: String): Int = PALETTE[Math.floorMod(bl.hashCode(), PALETTE.size)]
+              private fun lane(side: Char) = if (side == 'L') left else right
+              private fun sideName(side: Char) = if (side == 'L') "좌측" else "우측"
+              private fun sideOf(s: Slot): Char = if (left.contains(s)) 'L' else 'R'
+              private fun allBl(): List<Pair<Char, Slot>> =
+                  left.filter { !it.gap }.map { Pair('L', it) } + right.filter { !it.gap }.map { Pair('R', it) }
+
+              // ======================= 메인 (배치도) =======================
+              private fun showMain() {
+                  screen = "main"
+                  val root = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL; setBackgroundColor(BG)
+                      setPadding(dp(12), dp(12), dp(12), dp(10))
+                  }
+                  // 헤더
+                  val bls = allBl()
+                  val gapL = left.filter { it.gap }.sumOf { it.lines }; val gapR = right.filter { it.gap }.sumOf { it.lines }
+                  val head = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(Color.rgb(30, 64, 175), Color.rgb(13, 148, 136)))
+                          .apply { cornerRadius = dp(16).toFloat() }
+                      setPadding(dp(16), dp(12), dp(16), dp(12))
+                  }
+                  head.addView(label("A2 도크", 22f, Color.WHITE, true))
+                  head.addView(label("B/L ${bls.size}건 · ${bls.sumOf { it.second.pallets }}파레트 · 빈자리 ${gapL + gapR}줄", 13f, Color.argb(225, 255, 255, 255)))
+                  root.addView(head, LinearLayout.LayoutParams(-1, -2))
+
+                  // 검색
+                  val eSearch = field("🔍 B/L 검색 (일부만 쳐도 됨)", query).apply { textSize = 15f }
+                  root.addView(eSearch)
+
+                  // 공간 제목
+                  fun sideTitle(side: Char): TextView {
+                      val l = lane(side)
+                      val used = l.filter { !it.gap }.sumOf { it.lines }; val g = l.filter { it.gap }.sumOf { it.lines }
+                      return label((if (side == 'L') "◀ 좌측" else "우측 ▶") + "  ${used}줄 · 빈 ${g}", 13f, SUB, true).apply { gravity = Gravity.CENTER }
+                  }
+                  root.addView(row(sideTitle('L'), sideTitle('R')))
+
+                  // 배치도 (스크롤)
+                  val cols = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(4), dp(4), dp(4), dp(4)) }
+                  val colL = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  val colR = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  cols.addView(colL, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = dp(4) })
+                  cols.addView(colR, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(4) })
+                  val sv = ScrollView(this).apply { background = round(Color.rgb(22, 26, 33), 12); addView(cols) }
+                  mainScroll = sv
+                  root.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f).apply { setMargins(0, dp(4), 0, dp(6)) })
+
+                  var firstHit: View? = null
+                  fun fill(col: LinearLayout, side: Char) {
+                      val l = lane(side)
+                      if (l.isEmpty()) col.addView(label("비어 있음\n＋입고 또는 ＋빈자리", 13f, Color.rgb(107, 115, 133)).apply { gravity = Gravity.CENTER; setPadding(0, dp(30), 0, 0) })
+                      for (s in l) {
+                          val v = slotView(s)
+                          val hit = query.isNotBlank() && !s.gap && s.bl.contains(query.trim().uppercase())
+                          if (query.isNotBlank()) {
+                              if (hit) { v.foreground = round(Color.TRANSPARENT, 8, GOLD); if (firstHit == null) firstHit = v } else v.alpha = 0.3f
+                          }
+                          v.setOnClickListener { slotMenu(s) }
+                          col.addView(v, LinearLayout.LayoutParams(-1, dp(LINE_DP * s.lines) - dp(4)).apply { bottomMargin = dp(4) })
+                      }
+                  }
+                  fill(colL, 'L'); fill(colR, 'R')
+                  firstHit?.let { h -> sv.post { sv.smoothScrollTo(0, maxOf(0, h.top - dp(20))) } }
+
+                  eSearch.addTextChangedListener(watcher {
+                      val q = eSearch.text.toString()
+                      if (q != query) { query = q; showMain(); }
+                  })
+                  if (query.isNotEmpty()) { eSearch.requestFocus(); eSearch.setSelection(eSearch.text.length) }
+
+                  // 아래 버튼
+                  root.addView(row(
+                      btn("＋ 빈자리", Color.rgb(40, 80, 55)) { addGapDialog() },
+                      btn("↩ 되돌리기", Color.rgb(90, 70, 40)) { undo() },
+                      btn("📋 기록") { showHistory() }
+                  ))
+                  root.addView(row(
+                      btn("＋ 입고", TEAL) { showInbound(null, null) }.apply { textSize = 19f; minHeight = dp(58) },
+                      btn("－ 출고", DANGER) { showOutbound(null) }.apply { textSize = 19f; minHeight = dp(58) }
+                  ))
+                  setContentView(root)
+              }
+
+              private fun slotView(s: Slot): LinearLayout = LinearLayout(this).apply {
+                  orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL
+                  setPadding(dp(8), 0, dp(8), 0)
+                  if (s.gap) {
+                      background = round(Color.argb(18, 110, 226, 140), 8, GREEN, dashed = true)
+                      gravity = Gravity.CENTER
+                      addView(label("빈자리 ${s.lines}줄", 13f, GREEN, true).apply { gravity = Gravity.CENTER; setPadding(0, 0, 0, 0) })
+                      if (s.memo.isNotBlank() && s.lines >= 2) addView(label(s.memo, 11f, SUB).apply { gravity = Gravity.CENTER; setPadding(0, 0, 0, 0); maxLines = 1 })
+                  } else {
+                      background = round(colorOf(s.bl), 8)
+                      if (s.lines >= 2) {
+                          addView(label(s.bl, 13f, Color.WHITE, true).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
+                          addView(label("${s.lines}줄 · ${s.pallets}P" + (if (s.memo.isNotBlank()) " · ${s.memo}" else ""), 12f, Color.argb(230, 255, 255, 255)).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
+                      } else {
+                          addView(label("${s.bl} · ${s.pallets}P", 12f, Color.WHITE, true).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
+                      }
+                  }
+              }
+
+              // ---------- 칸 메뉴 ----------
+              private fun slotMenu(s: Slot) {
+                  val side = sideOf(s)
+                  val l = lane(side)
+                  val idx = l.indexOf(s)
+                  val items = ArrayList<Pair<String, () -> Unit>>()
+                  if (s.gap) {
+                      items.add(Pair("＋ 여기에 입고") { showInbound(side, s) })
+                      items.add(Pair("크기 바꾸기 (지금 ${s.lines}줄)") { numberDialog("빈자리 줄 수", s.lines) { n -> change { s.lines = n } } })
+                      items.add(Pair("메모") { textDialog("빈자리 메모", s.memo) { t -> change { s.memo = t } } })
+                  } else {
+                      items.add(Pair("－ 출고") { showOutbound(s) })
+                      items.add(Pair("수정 (파레트·줄·메모)") { editDialog(s) })
+                  }
+                  if (idx > 0) items.add(Pair("▲ 위로") { change { l.removeAt(idx); l.add(idx - 1, s) } })
+                  if (idx < l.size - 1) items.add(Pair("▼ 아래로") { change { l.removeAt(idx); l.add(idx + 1, s) } })
+                  if (idx > 0) items.add(Pair("⤒ 맨 위로") { change { l.removeAt(idx); l.add(0, s) } })
+                  if (idx < l.size - 1) items.add(Pair("⤓ 맨 아래로") { change { l.removeAt(idx); l.add(s) } })
+                  items.add(Pair("⇄ ${sideName(if (side == 'L') 'R' else 'L')}으로 옮기기 (맨 아래)") {
+                      change { l.remove(s); lane(if (side == 'L') 'R' else 'L').add(s) }
+                  })
+                  items.add(Pair(if (s.gap) "🗑 빈자리 지우기" else "🗑 삭제 (출고 기록 없이)") {
+                      AlertDialog.Builder(this).setMessage(if (s.gap) "빈자리를 지울까요? (아래 칸이 위로 당겨집니다)" else "${s.bl}을(를) 기록 없이 지울까요?")
+                          .setPositiveButton("지우기") { _, _ -> change { l.remove(s) } }
+                          .setNegativeButton("취소", null).show()
+                  })
+                  val title = if (s.gap) "${sideName(side)} 빈자리 ${s.lines}줄" else "${s.bl} · ${s.pallets}P · ${s.lines}줄"
+                  AlertDialog.Builder(this).setTitle(title)
+                      .setItems(items.map { it.first }.toTypedArray()) { _, w -> items[w].second() }
+                      .setNegativeButton("닫기", null).show()
+              }
+
+              private fun numberDialog(title: String, v: Int, onOk: (Int) -> Unit) {
+                  val e = EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(v.toString()); selectAll() }
+                  AlertDialog.Builder(this).setTitle(title).setView(e)
+                      .setPositiveButton("확인") { _, _ -> val n = e.text.toString().toIntOrNull(); if (n == null || n < 1) toast("1 이상 입력") else onOk(n) }
+                      .setNegativeButton("취소", null).show()
+              }
+
+              private fun textDialog(title: String, v: String, onOk: (String) -> Unit) {
+                  val e = EditText(this).apply { setText(v) }
+                  AlertDialog.Builder(this).setTitle(title).setView(e)
+                      .setPositiveButton("확인") { _, _ -> onOk(e.text.toString().trim()) }
+                      .setNegativeButton("취소", null).show()
+              }
+
+              private fun editDialog(s: Slot) {
+                  val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
+                  val eP = EditText(this).apply { hint = "파레트"; inputType = InputType.TYPE_CLASS_NUMBER; setText(s.pallets.toString()) }
+                  val eL = EditText(this).apply { hint = "줄"; inputType = InputType.TYPE_CLASS_NUMBER; setText(s.lines.toString()) }
+                  val eM = EditText(this).apply { hint = "메모"; setText(s.memo) }
+                  box.addView(TextView(this).apply { text = "파레트 수" }); box.addView(eP)
+                  box.addView(TextView(this).apply { text = "줄 수" }); box.addView(eL)
+                  box.addView(TextView(this).apply { text = "메모" }); box.addView(eM)
+                  AlertDialog.Builder(this).setTitle("${s.bl} 수정").setView(box)
+                      .setPositiveButton("저장") { _, _ ->
+                          val p = eP.text.toString().toIntOrNull(); val l = eL.text.toString().toIntOrNull()
+                          if (p == null || l == null || l < 1) toast("숫자를 확인하세요")
+                          else change { s.pallets = p; s.lines = l; s.memo = eM.text.toString().trim() }
+                      }.setNegativeButton("취소", null).show()
+              }
+
+              private fun addGapDialog() {
+                  val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
+                  val eL = EditText(this).apply { hint = "몇 줄"; inputType = InputType.TYPE_CLASS_NUMBER; setText("1") }
+                  val eM = EditText(this).apply { hint = "메모 (예: 기둥, 예약)" }
+                  box.addView(TextView(this).apply { text = "빈자리 줄 수" }); box.addView(eL); box.addView(eM)
+                  val opts = arrayOf("좌측 맨 아래", "좌측 맨 위", "우측 맨 아래", "우측 맨 위")
+                  var pick = 0
+                  AlertDialog.Builder(this).setTitle("＋ 빈자리 넣기").setView(box)
+                      .setSingleChoiceItems(opts, 0) { _, w -> pick = w }
+                      .setPositiveButton("넣기") { _, _ ->
+                          val n = eL.text.toString().toIntOrNull()
+                          if (n == null || n < 1) { toast("줄 수를 확인하세요"); return@setPositiveButton }
+                          val g = Slot(gap = true, lines = n, memo = eM.text.toString().trim(), date = now())
+                          change {
+                              val l = lane(if (pick < 2) 'L' else 'R')
+                              if (pick % 2 == 0) l.add(g) else l.add(0, g)
+                          }
+                          toast("빈자리 ${n}줄을 넣었어요. 눌러서 위치를 옮길 수 있어요")
+                      }.setNegativeButton("취소", null).show()
+              }
+
+              // ======================= 입고 =======================
+              private fun showInbound(presetSide: Char?, presetGap: Slot?) {
+                  screen = "in"
+                  var side = presetSide ?: 'L'
+                  var target: Slot? = presetGap           // null = 맨 아래, 또는 빈자리
+                  var atTop = false
+                  var lines = 1
+                  val root = vbox()
+                  root.addView(topBar("입고", TEAL))
+                  val c1 = card()
+                  c1.addView(label("B/L 번호", 13f, SUB))
+                  val eBl = field("예: HLCUBU1251187", "")
+                  c1.addView(eBl)
+                  c1.addView(label("파레트 수", 13f, SUB))
+                  val eP = field("파레트", "", numeric = true)
+                  c1.addView(eP)
+                  c1.addView(label("몇 줄 차지?", 13f, SUB))
+                  val tvLines = label("1 줄", 30f, Color.WHITE, true).apply { gravity = Gravity.CENTER }
+                  c1.addView(row(
+                      btn("−") { if (lines > 1) { lines--; tvLines.text = "$lines 줄" } }.apply { textSize = 26f },
+                      tvLines,
+                      btn("＋") { lines++; tvLines.text = "$lines 줄" }.apply { textSize = 26f }
+                  ))
+                  c1.addView(label("메모 (선택)", 13f, SUB))
+                  val eM = field("화주, 품명 등", "").apply { inputType = InputType.TYPE_CLASS_TEXT }
+                  c1.addView(eM)
+                  root.addView(c1)
+
+                  val c2 = card()
+                  root.addView(c2)
+                  fun drawPos() {
+                      c2.removeAllViews()
+                      c2.addView(label("공간", 13f, SUB))
+                      c2.addView(row(
+                          btn(if (side == 'L') "✔ ◀ 좌측" else "◀ 좌측", if (side == 'L') TEAL else GREY_BTN) { if (side != 'L') { side = 'L'; target = null; atTop = false; drawPos() } },
+                          btn(if (side == 'R') "✔ 우측 ▶" else "우측 ▶", if (side == 'R') TEAL else GREY_BTN) { if (side != 'R') { side = 'R'; target = null; atTop = false; drawPos() } }
+                      ))
+                      c2.addView(label("넣을 위치", 13f, SUB))
+                      val l = lane(side)
+                      val gaps = l.filter { it.gap }
+                      for (g in gaps) {
+                          val pos = l.indexOf(g) + 1
+                          val sel = target === g
+                          c2.addView(btn((if (sel) "✔ " else "") + "빈자리 ${g.lines}줄 (위에서 ${pos}번째)" + (if (g.memo.isNotBlank()) " · ${g.memo}" else ""),
+                              if (sel) Color.rgb(30, 110, 70) else Color.rgb(40, 60, 50)) { target = g; atTop = false; drawPos() })
+                      }
+                      val selBottom = target == null && !atTop
+                      c2.addView(btn((if (selBottom) "✔ " else "") + "맨 아래", if (selBottom) TEAL else GREY_BTN) { target = null; atTop = false; drawPos() })
+                      c2.addView(btn((if (atTop) "✔ " else "") + "맨 위", if (atTop) TEAL else GREY_BTN) { target = null; atTop = true; drawPos() })
+                  }
+                  drawPos()
+
+                  root.addView(btn("입고 등록", TEAL) {
+                      val bl = eBl.text.toString().trim().uppercase().replace(" ", "")
+                      val p = eP.text.toString().toIntOrNull()
+                      when {
+                          bl.isEmpty() -> toast("B/L 번호를 넣으세요")
+                          p == null -> toast("파레트 수를 넣으세요")
+                          else -> {
+                              val doIt = {
+                                  val s = Slot(gap = false, bl = bl, pallets = p, lines = lines, memo = eM.text.toString().trim(), date = now())
+                                  change {
+                                      val l = lane(side)
+                                      val g = target
+                                      if (g != null && l.contains(g)) {
+                                          val i = l.indexOf(g)
+                                          if (lines < g.lines) { g.lines -= lines; l.add(i, s) } else l[i] = s
+                                      } else if (atTop) l.add(0, s) else l.add(s)
+                                  }
+                                  log("입고", s, side)
+                                  toast("$bl 입고 (${sideName(side)} ${lines}줄 · ${p}P)")
+                                  showMain()
+                              }
+                              val g = target
+                              if (allBl().any { it.second.bl == bl }) {
+                                  AlertDialog.Builder(this).setMessage("$bl 이(가) 이미 있어요. 그래도 따로 넣을까요?")
+                                      .setPositiveButton("넣기") { _, _ -> doIt() }.setNegativeButton("취소", null).show()
+                              } else if (g != null && lines > g.lines) {
+                                  AlertDialog.Builder(this).setMessage("빈자리(${g.lines}줄)보다 ${lines - g.lines}줄 더 커요. 빈자리 대신 넣을까요?")
+                                      .setPositiveButton("넣기") { _, _ -> doIt() }.setNegativeButton("취소", null).show()
+                              } else doIt()
+                          }
+                      }
+                  }.apply { textSize = 19f; minHeight = dp(60) })
+                  page(root)
+              }
+
+              // ======================= 출고 =======================
+              private fun showOutbound(preset: Slot?) {
+                  screen = "out"
+                  var sel: Slot? = preset
+                  var partial = false
+                  val root = vbox()
+                  root.addView(topBar("출고", DANGER))
+                  val eFind = field("🔍 B/L 찾기", "").apply { textSize = 15f }
+                  root.addView(eFind)
+                  val listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  root.addView(listBox)
+                  val opt = card()
+                  root.addView(opt)
+
+                  fun drawOpt() {
+                      opt.removeAllViews()
+                      val s = sel
+                      if (s == null) { opt.addView(label("나갈 B/L을 고르세요", 14f, SUB)); return }
+                      val side = sideOf(s)
+                      opt.addView(label("${s.bl} · ${sideName(side)} · ${s.lines}줄 · ${s.pallets}P", 16f, Color.WHITE, true))
+                      opt.addView(row(
+                          btn(if (!partial) "✔ 전체 출고" else "전체 출고", if (!partial) DANGER else GREY_BTN) { partial = false; drawOpt() },
+                          btn(if (partial) "✔ 일부 출고" else "일부 출고", if (partial) DANGER else GREY_BTN) { partial = true; drawOpt() }
+                      ))
+                      if (!partial) {
+                          opt.addView(label("출고 후: 그 자리 ${s.lines}줄이 빈자리로 남아요 (다른 B/L은 그대로)", 14f, GREEN))
+                          opt.addView(btn("출고 등록 · ${s.pallets}P 전부", DANGER) {
+                              val outBl = s.bl; val outP = s.pallets; val outL = s.lines
+                              history.add(0, "${now()}|출고|$outBl|$outP|$outL|${sideName(side)}|전체")
+                              change { s.gap = true; s.memo = "$outBl 출고 ${now().substring(0, 5)}"; s.bl = ""; s.pallets = 0 }
+                              toast("전체 출고 완료 — 빈자리로 남김"); showMain()
+                          }.apply { textSize = 18f; minHeight = dp(58) })
+                      } else {
+                          opt.addView(label("나가는 파레트 수", 13f, SUB))
+                          val eOut = field("예: 8", "", numeric = true)
+                          opt.addView(eOut)
+                          opt.addView(label("남는 줄 수 (지금 ${s.lines}줄)", 13f, SUB))
+                          val eLeft = field("남는 줄", s.lines.toString(), numeric = true)
+                          opt.addView(eLeft)
+                          val tvPrev = label("", 14f, GREEN)
+                          opt.addView(tvPrev)
+                          fun prev() {
+                              val o = eOut.text.toString().toIntOrNull() ?: 0
+                              val lf = eLeft.text.toString().toIntOrNull() ?: s.lines
+                              tvPrev.text = "출고 후: ${s.pallets - o}P 남음 · ${lf}줄 사용" + if (lf < s.lines) " · 아래 ${s.lines - lf}줄은 빈자리" else ""
+                          }
+                          eOut.addTextChangedListener(watcher { prev() }); eLeft.addTextChangedListener(watcher { prev() }); prev()
+                          opt.addView(btn("출고 등록", DANGER) {
+                              val o = eOut.text.toString().toIntOrNull()
+                              val lf = eLeft.text.toString().toIntOrNull()
+                              when {
+                                  o == null || o < 1 -> toast("나가는 파레트 수를 넣으세요")
+                                  o >= s.pallets -> toast("전부 나가면 '전체 출고'를 고르세요")
+                                  lf == null || lf < 1 || lf > s.lines -> toast("남는 줄은 1~${s.lines}")
+                                  else -> {
+                                      val l = lane(side)
+                                      change {
+                                          val freed = s.lines - lf
+                                          s.pallets -= o; s.lines = lf
+                                          if (freed > 0) l.add(l.indexOf(s) + 1, Slot(gap = true, lines = freed, memo = "${s.bl} 일부출고 ${now().substring(0, 5)}", date = now()))
+                                          mergeGaps(l)
+                                      }
+                                      history.add(0, "${now()}|출고|${s.bl}|$o|${s.lines}|${sideName(side)}|일부 (남은 ${s.pallets}P)")
+                                      save()
+                                      toast("${s.bl} ${o}P 출고 · ${s.pallets}P 남음"); showMain()
+                                  }
+                              }
+                          }.apply { textSize = 18f; minHeight = dp(58) })
+                      }
+                  }
+
+                  fun drawList() {
+                      listBox.removeAllViews()
+                      val q = eFind.text.toString().trim().uppercase()
+                      val list = allBl().filter { q.isEmpty() || it.second.bl.contains(q) }
+                      if (list.isEmpty()) listBox.addView(label("B/L이 없습니다", 14f, SUB))
+                      for ((side, s) in list) {
+                          val chosen = sel === s
+                          val b = btn((if (chosen) "✔ " else "") + "${s.bl}\n${sideName(side)} · ${s.lines}줄 · ${s.pallets}P · ${s.date} 입고",
+                              if (chosen) Color.rgb(120, 45, 35) else CARD) { sel = s; partial = false; drawList(); drawOpt() }
+                          b.gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                          b.textSize = 15f
+                          listBox.addView(b)
+                      }
+                  }
+                  eFind.addTextChangedListener(watcher { drawList() })
+                  drawList(); drawOpt()
+                  page(root)
+              }
+
+              /** 붙어 있는 빈자리끼리 합치기 */
+              private fun mergeGaps(l: MutableList<Slot>) {
+                  var i = 0
+                  while (i < l.size - 1) {
+                      val a = l[i]; val b = l[i + 1]
+                      if (a.gap && b.gap) {
+                          a.lines += b.lines
+                          if (b.memo.isNotBlank()) a.memo = if (a.memo.isBlank()) b.memo else "${a.memo}, ${b.memo}"
+                          l.removeAt(i + 1)
+                      } else i++
+                  }
+              }
+
+              // ======================= 기록 =======================
+              private fun log(kind: String, s: Slot, side: Char) {
+                  history.add(0, "${now()}|$kind|${s.bl}|${s.pallets}|${s.lines}|${sideName(side)}|${s.memo}")
+                  if (history.size > 2000) history.removeAt(history.lastIndex)
+                  save()
+              }
+
+              private fun showHistory() {
+                  screen = "hist"
+                  val root = vbox()
+                  root.addView(topBar("입출고 기록", PRIMARY))
+                  root.addView(row(btn("공유 (엑셀용 CSV)", PRIMARY) { shareCsv() }, btn("기록 지우기", Color.rgb(70, 40, 46)) {
+                      AlertDialog.Builder(this).setMessage("입출고 기록만 지웁니다. (배치도는 그대로)")
+                          .setPositiveButton("지우기") { _, _ -> history.clear(); save(); showHistory() }
+                          .setNegativeButton("취소", null).show()
+                  }))
+                  if (history.isEmpty()) root.addView(label("기록이 없습니다", 15f, SUB))
+                  for (h in history) {
+                      val p = h.split("|")
+                      if (p.size < 7) continue
+                      val inb = p[1] == "입고"
+                      val c = card()
+                      c.addView(label("${if (inb) "＋ 입고" else "－ 출고"}  ${p[2]}", 16f, if (inb) GREEN else Color.rgb(255, 140, 120), true))
+                      c.addView(label("${p[0]} · ${p[5]} · ${p[3]}P · ${p[4]}줄" + if (p[6].isNotBlank()) " · ${p[6]}" else "", 13f, SUB))
+                      root.addView(c)
+                  }
+                  page(root)
+              }
+
+              private fun shareCsv() {
+                  val sb = StringBuilder("﻿시각,구분,B/L,파레트,줄,공간,메모\n")
+                  for (h in history) {
+                      val p = h.split("|"); if (p.size < 7) continue
+                      sb.append(p.joinToString(",") { "\"" + it.replace("\"", "\"\"") + "\"" }).append("\n")
+                  }
+                  sb.append("\n현재 배치\n공간,순서,구분,B/L,파레트,줄,메모\n")
+                  for ((side, l) in kotlin.collections.listOf(Pair("좌측", left), Pair("우측", right)))
+                      l.forEachIndexed { i, s -> sb.append("$side,${i + 1},${if (s.gap) "빈자리" else "B/L"},${s.bl},${s.pallets},${s.lines},\"${s.memo}\"\n") }
+                  val f = File(cacheDir, "A2도크_" + SimpleDateFormat("yyyyMMdd_HHmm", Locale.KOREA).format(Date()) + ".csv")
+                  f.writeText(sb.toString(), Charsets.UTF_8)
+                  val uri = FileProvider.getUriForFile(this, "com.nakyung.a2dock.files", f)
+                  startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                      type = "text/csv"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                  }, "공유"))
+              }
+
+              // ======================= 변경·되돌리기·저장 =======================
+              private fun change(f: () -> Unit) {
+                  undoStack.add(stateJson().toString())
+                  if (undoStack.size > 30) undoStack.removeAt(0)
+                  f()
+                  mergeGaps(left); mergeGaps(right)
+                  save()
+                  if (screen == "main") showMain()
+              }
+
+              private fun undo() {
+                  if (undoStack.isEmpty()) { toast("되돌릴 게 없어요"); return }
+                  applyJson(JSONObject(undoStack.removeAt(undoStack.lastIndex)), withHistory = false)
+                  save(); toast("되돌렸어요"); showMain()
+              }
+
+              private fun slotJson(s: Slot) = JSONObject().apply {
+                  put("g", s.gap); put("b", s.bl); put("p", s.pallets); put("l", s.lines); put("m", s.memo); put("d", s.date)
+              }
+
+              private fun stateJson(): JSONObject = JSONObject().apply {
+                  put("L", JSONArray(left.map { slotJson(it) }))
+                  put("R", JSONArray(right.map { slotJson(it) }))
+                  put("H", JSONArray(history))
+              }
+
+              private fun applyJson(o: JSONObject, withHistory: Boolean) {
+                  fun read(a: JSONArray?, to: MutableList<Slot>) {
+                      to.clear(); if (a == null) return
+                      for (i in 0 until a.length()) {
+                          val j = a.getJSONObject(i)
+                          to.add(Slot(j.optBoolean("g"), j.optString("b"), j.optInt("p"), maxOf(1, j.optInt("l", 1)), j.optString("m"), j.optString("d")))
+                      }
+                  }
+                  read(o.optJSONArray("L"), left); read(o.optJSONArray("R"), right)
+                  if (withHistory) {
+                      history.clear()
+                      val h = o.optJSONArray("H")
+                      if (h != null) for (i in 0 until h.length()) history.add(h.getString(i))
+                  }
+              }
+
+              private fun save() {
+                  getSharedPreferences("a2dock", MODE_PRIVATE).edit().putString("s", stateJson().toString()).apply()
+              }
+
+              private fun load() {
+                  val s = getSharedPreferences("a2dock", MODE_PRIVATE).getString("s", null) ?: return
+                  try { applyJson(JSONObject(s), withHistory = true) } catch (e: Exception) { }
+              }
+
+              // ======================= 앱 업데이트 =======================
+              private var pendingApk: File? = null
+
+              private fun checkUpdate(silent: Boolean) {
+                  Thread {
+                      try {
+                          val r = Updater.latest(BuildInfo.REPO, "")
+                          runOnUiThread {
+                              if (r != null && r.build > BuildInfo.BUILD) {
+                                  AlertDialog.Builder(this).setTitle("새 버전 ${r.build}")
+                                      .setMessage("지금 버전 ${BuildInfo.BUILD} → 새 버전 ${r.build}\n업데이트할까요?")
+                                      .setPositiveButton("업데이트") { _, _ -> startUpdate(r) }
+                                      .setNegativeButton("나중에", null).show()
+                              } else if (!silent) toast("최신 버전입니다 (${BuildInfo.BUILD})")
+                          }
+                      } catch (e: Exception) {
+                          if (!silent) runOnUiThread { toast("업데이트 확인 실패: ${e.message}") }
+                      }
+                  }.start()
+              }
+
+              private fun startUpdate(r: Release) {
+                  val dlg = AlertDialog.Builder(this).setTitle("다운로드 중").setMessage("0%").setCancelable(false).show()
+                  Thread {
+                      try {
+                          val f = File(File(cacheDir, "apk"), "A2Dock-${r.build}.apk")
+                          Updater.download(r, "", f) { p -> runOnUiThread { dlg.setMessage("$p%") } }
+                          runOnUiThread { dlg.dismiss(); installApk(f) }
+                      } catch (e: Exception) {
+                          runOnUiThread { dlg.dismiss(); toast("다운로드 실패: ${e.message}") }
+                      }
+                  }.start()
+              }
+
+              private fun installApk(f: File) {
+                  if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+                      pendingApk = f
+                      toast("'이 출처 허용'을 켜고 돌아오면 설치가 시작됩니다")
+                      startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                      return
+                  }
+                  save()
+                  val uri = FileProvider.getUriForFile(this, "com.nakyung.a2dock.files", f)
+                  startActivity(Intent(Intent.ACTION_VIEW).apply {
+                      setDataAndType(uri, "application/vnd.android.package-archive")
+                      addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                  })
+              }
+          }
+          TALLY_EOF
+          mkdir -p "app/src/main/java/com/nakyung/a2dock"
+          cat > 'app/src/main/java/com/nakyung/a2dock/Updater.kt' <<'TALLY_EOF'
+          package com.nakyung.a2dock
+
+          import org.json.JSONObject
+          import java.io.File
+          import java.net.HttpURLConnection
+          import java.net.URL
+
+          class Release(val build: Int, val url: String, val apiUrl: String, val name: String)
+
+          /** GitHub Releases 에서 최신 APK 확인·다운로드 */
+          object Updater {
+
+              private fun open(url: String, token: String, accept: String): HttpURLConnection {
+                  val c = URL(url).openConnection() as HttpURLConnection
+                  c.connectTimeout = 15000
+                  c.readTimeout = 30000
+                  c.instanceFollowRedirects = true
+                  c.setRequestProperty("Accept", accept)
+                  c.setRequestProperty("User-Agent", "A2Dock-App")
+                  if (token.isNotBlank()) c.setRequestProperty("Authorization", "Bearer ${token.trim()}")
+                  return c
+              }
+
+              fun latest(repo: String, token: String): Release? {
+                  val c = open("https://api.github.com/repos/${repo.trim()}/releases/latest", token, "application/vnd.github+json")
+                  val code = c.responseCode
+                  if (code == 404) throw Exception("업데이트 서버를 찾을 수 없음")
+                  if (code != 200) throw Exception("HTTP $code")
+                  val j = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+                  val n = j.optString("tag_name").filter { it.isDigit() }.toIntOrNull() ?: return null
+                  val assets = j.optJSONArray("assets") ?: return null
+                  for (i in 0 until assets.length()) {
+                      val a = assets.getJSONObject(i)
+                      if (a.optString("name").endsWith(".apk"))
+                          return Release(n, a.optString("browser_download_url"), a.optString("url"), a.optString("name"))
+                  }
+                  return null
+              }
+
+              fun download(r: Release, token: String, dest: File, progress: (Int) -> Unit) {
+                  val c = if (token.isNotBlank()) open(r.apiUrl, token, "application/octet-stream")
+                  else open(r.url, "", "application/octet-stream")
+                  val code = c.responseCode
+                  if (code != 200) throw Exception("다운로드 실패 HTTP $code")
+                  val total = c.contentLength
+                  dest.parentFile?.mkdirs()
+                  c.inputStream.use { ins ->
+                      dest.outputStream().use { out ->
+                          val buf = ByteArray(64 * 1024)
+                          var done = 0L
+                          var last = -1
+                          while (true) {
+                              val n = ins.read(buf)
+                              if (n < 0) break
+                              out.write(buf, 0, n)
+                              done += n
+                              if (total > 0) {
+                                  val p = (done * 100 / total).toInt()
+                                  if (p != last) { last = p; progress(p) }
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+          TALLY_EOF
+          echo "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" | base64 -d > app/a2dock.jks
+
+      - name: Build info
+        working-directory: proj
+        run: |
+          printf 'package com.nakyung.a2dock\nobject BuildInfo {\n    const val REPO = "%s"\n    const val BUILD = %s\n}\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_NUMBER" > app/src/main/java/com/nakyung/a2dock/BuildInfo.kt
+          cat app/src/main/java/com/nakyung/a2dock/BuildInfo.kt
+
+      - name: Build APK
+        working-directory: proj
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Rename APK
+        run: cp proj/app/build/outputs/apk/release/app-release.apk "A2Dock-$GITHUB_RUN_NUMBER.apk"
+
+      - name: Publish APK (Releases)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: a2dock-${{ github.run_number }}
+          name: A2 도크 ${{ github.run_number }}
+          files: A2Dock-${{ github.run_number }}.apk
+          make_latest: true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: A2Dock-APK
+          path: proj/app/build/outputs/apk/release/*.apk
