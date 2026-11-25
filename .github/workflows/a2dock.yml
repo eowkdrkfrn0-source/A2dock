@@ -914,7 +914,7 @@ jobs:
                   if (code == 404) throw Exception("업데이트 서버를 찾을 수 없음")
                   if (code != 200) throw Exception("HTTP $code")
                   val j = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
-                  val n = j.optString("tag_name").filter { it.isDigit() }.toIntOrNull() ?: return null
+                  val n = j.optString("tag_name").substringAfterLast('-').filter { it.isDigit() }.toIntOrNull() ?: return null
                   val assets = j.optJSONArray("assets") ?: return null
                   for (i in 0 until assets.length()) {
                       val a = assets.getJSONObject(i)
