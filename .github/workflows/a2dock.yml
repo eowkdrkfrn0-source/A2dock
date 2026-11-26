@@ -633,8 +633,8 @@ jobs:
                               if (sel) Color.rgb(30, 110, 70) else Color.rgb(40, 60, 50)) { target = g; atTop = false; drawPos() })
                       }
                       val selBottom = target == null && !atTop
-                      c2.addView(btn((if (selBottom) "✔ " else "") + "맨 아래", if (selBottom) TEAL else GREY_BTN) { target = null; atTop = false; drawPos() })
-                      c2.addView(btn((if (atTop) "✔ " else "") + "맨 위", if (atTop) TEAL else GREY_BTN) { target = null; atTop = true; drawPos() })
+                      c2.addView(btn((if (selBottom) "✔ " else "") + "맨 위", if (selBottom) TEAL else GREY_BTN) { target = null; atTop = false; drawPos() })
+                      c2.addView(btn((if (atTop) "✔ " else "") + "맨 아래", if (atTop) TEAL else GREY_BTN) { target = null; atTop = true; drawPos() })
                   }
                   drawPos()
 
