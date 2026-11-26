@@ -1607,10 +1607,11 @@ jobs:
                   root.addView(camBox, LinearLayout.LayoutParams(-1, dp(300)))
 
                   root.addView(row(
-                      btn("🔦") { torch = !torch; camera?.cameraControl?.enableTorch(torch) },
-                      btn("글자 골라 넣기") { pickFromText() },
-                      btn("직접 입력") { manualAdd() },
-                      weights = floatArrayOf(0.6f, 1.3f, 1f)
+                      btn("🔦") { torch = !torch; camera?.cameraControl?.enableTorch(torch) }.apply { textSize = 14f },
+                      btn("번호로 찾기", Color.rgb(45, 70, 110)) { findByNumber() }.apply { textSize = 14f },
+                      btn("글자 고르기") { pickFromText() }.apply { textSize = 14f },
+                      btn("직접 입력") { manualAdd() }.apply { textSize = 14f },
+                      weights = floatArrayOf(0.55f, 1.2f, 1f, 1f)
                   ))
                   if (mode == "in") {
                       root.addView(TextView(this).apply {
@@ -1781,6 +1782,57 @@ jobs:
                       .setNegativeButton("취소", null).show()
               }
 
+              private fun mkOf(lot: String): String = when {
+                  lot.startsWith("PL") -> "Semperflex"
+                  lot.startsWith("XS") -> "Hengtong"
+                  lot.startsWith("S1") -> "Gates"
+                  Regex("\\d{10}-\\d{3}").matches(lot) -> "Polyhose"
+                  else -> "기타"
+              }
+
+              /** 라벨이 안 읽힐 때: LOT 일부(뒤 4자리 등)로 재고 목록·재고에서 찾기 */
+              private fun findByNumber() {
+                  val e = field("LOT 일부 (예: 뒤 4자리)", "")
+                  val box = vbox().apply { setPadding(dp(20), dp(8), dp(20), 0); addView(e) }
+                  AlertDialog.Builder(this).setTitle("번호로 찾기").setView(box)
+                      .setPositiveButton("찾기") { _, _ ->
+                          val q = e.text.toString().trim().uppercase().replace(" ", "")
+                          if (q.length < 2) { toast("2자리 이상 입력하세요"); return@setPositiveButton }
+                          if (scanMode == "move") {
+                              val hits = stock().filter { it.lot.uppercase().contains(q) }.sortedBy { locSortKey(it.loc) }
+                              if (hits.isEmpty()) { toast("재고에 '$q'가 들어간 LOT가 없어요"); return@setPositiveButton }
+                              AlertDialog.Builder(this).setTitle("'$q' 검색 · ${hits.size}개")
+                                  .setItems(hits.map { "${it.lot}\n${it.loc} · ${it.name}" }.toTypedArray()) { _, w ->
+                                      val h = hits[w]; lastAddKey = ""; addMove(Parsed(h.mk, h.lot, h.name, h.qty, h.size))
+                                  }.setNegativeButton("취소", null).show()
+                              return@setPositiveButton
+                          }
+                          val placed = stock().map { it.lot }.toHashSet()
+                          val inBatch = batchItems().map { it.lot }.toHashSet()
+                          val hits = refs.values.filter { it.lot.uppercase().contains(q) }
+                              .sortedWith(compareBy<RRef>({ it.lot in placed || it.lot in inBatch }, { it.lot }))
+                          if (hits.isEmpty()) {
+                              if (refs.isEmpty()) toast("재고 목록을 먼저 불러오세요 (홈 → 재고 목록·대조)")
+                              else toast("목록에 '$q'가 들어간 LOT가 없어요 → [직접 입력]")
+                              return@setPositiveButton
+                          }
+                          val labels = hits.map { r ->
+                              val tag = if (r.lot in inBatch) "  [이미 찍음]" else if (r.lot in placed) "  [재고에 있음]" else ""
+                              "${r.lot}$tag\n${r.name} · ${shortDate(r.inDate)} · ${r.bl}"
+                          }
+                          AlertDialog.Builder(this).setTitle("'$q' 검색 · ${hits.size}개")
+                              .setItems(labels.toTypedArray()) { _, w ->
+                                  val r = hits[w]
+                                  val mk = mkOf(r.lot)
+                                  lastAddKey = ""
+                                  if (mk == "Hengtong") textDialog("사이즈 (소재 사양)", "Ø", false) { sz -> lastAddKey = ""; addInbound(Parsed(mk, r.lot, r.name, r.qty, sz)) }
+                                  else addInbound(Parsed(mk, r.lot, r.name, r.qty))
+                              }.setNegativeButton("취소", null).show()
+                      }
+                      .setNegativeButton("취소", null).show()
+                  e.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+              }
+
               private fun manualAdd(lot0: String = "") {
                   val box = vbox().apply { setPadding(dp(20), dp(8), dp(20), 0) }
                   val eLot = field("LOT (필수)", lot0)
@@ -1792,14 +1844,7 @@ jobs:
                       .setPositiveButton("추가") { _, _ ->
                           val lot = eLot.text.toString().trim().uppercase()
                           if (lot.isEmpty()) { toast("LOT를 입력하세요"); return@setPositiveButton }
-                          val mk = when {
-                              lot.startsWith("PL") -> "Semperflex"
-                              lot.startsWith("XS") -> "Hengtong"
-                              lot.startsWith("S1") -> "Gates"
-                              Regex("\\d{10}-\\d{3}").matches(lot) -> "Polyhose"
-                              else -> "기타"
-                          }
-                          val p = Parsed(mk, lot, eName.text.toString().trim(), eQty.text.toString().trim(), eSize.text.toString().trim())
+                          val p = Parsed(mkOf(lot), lot, eName.text.toString().trim(), eQty.text.toString().trim(), eSize.text.toString().trim())
                           lastAddKey = ""
                           if (scanMode == "move") addMove(p) else addInbound(p)
                       }
