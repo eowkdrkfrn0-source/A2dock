@@ -1395,6 +1395,7 @@ jobs:
                   addView(Button(this@RackActivity).apply {
                       text = "←"; textSize = 20f; setTextColor(Color.WHITE)
                       background = round(CARD, 12); stateListAnimator = null
+                      setPadding(0, 0, 0, 0); minWidth = 0; minimumWidth = 0
                       setOnClickListener { onBack() }
                   }, LinearLayout.LayoutParams(dp(48), dp(48)))
                   addView(label("  $title", 21f, Color.WHITE, true), LinearLayout.LayoutParams(0, -2, 1f))
@@ -1675,7 +1676,7 @@ jobs:
                   if (scanMode == "in") {
                       val q = queue()
                       list.addView(label("대기열 (찍은 순서) · ${q.size}개", 13f, SUB))
-                      for (it in q) list.addView(itemRow(it, "✕", DIM) { ask("대기열에서 빼기", "${it.seq}번 ${it.lot}", "빼기") { items.remove(it); save(); fillScanList() } })
+                      for (it in q) list.addView(itemRow(it, "✕", DIM) { ask("대기열에서 빼기", "${it.seq}번 ${it.lot}", "빼기") { val id = it.id; items.removeAll { x -> x.id == id }; save(); fillScanList() } })
                   } else {
                       val sel = items.filter { it.id in moveSel }
                       list.addView(label("옮길 것 · ${sel.size}개", 13f, SUB))
@@ -2101,7 +2102,7 @@ jobs:
                               2 -> editItem(it)
                               3 -> { moveSel.clear(); moveSel.add(it.id); setPickFrom(it.loc); showMove() }
                               4 -> ask("출고 처리", "${it.lot} (${it.loc})", "출고") { outOne(it); redraw() }
-                              5 -> ask("삭제", "${it.lot} (${it.loc}) 를 지울까요?\n(출고 기록 없이 지워져요)", "삭제") { log("삭제", it); items.remove(it); save(); redraw() }
+                              5 -> ask("삭제", "${it.lot} (${it.loc}) 를 지울까요?\n(출고 기록 없이 지워져요)", "삭제") { log("삭제", it); val id = it.id; items.removeAll { x -> x.id == id }; save(); redraw() }
                           }
                       }.show()
               }
@@ -2250,7 +2251,8 @@ jobs:
 
               private fun outOne(it: RItem) {
                   log("출고", it)
-                  items.remove(it)
+                  val id = it.id
+                  items.removeAll { x -> x.id == id }
                   save()
               }
 
@@ -2670,12 +2672,14 @@ jobs:
                               scheduleFetch(5000)
                               return@runOnUiThread
                           }
+                          val first = !fetchedOnce
+                          val hadErr = syncErr.isNotEmpty()
                           val changed = mergeRemote(itTxt, rfTxt)
                           fetchedOnce = true
                           syncErr = ""
                           saveLocal()
                           scheduleFlush()
-                          if (changed) refreshView()
+                          if (changed) refreshView() else if ((first || hadErr) && screen == "home") showHome()
                       }
                   }.start()
               }
@@ -2698,8 +2702,8 @@ jobs:
                       if (dirty) {
                           out.add(x)                                           // 내가 바꾼 건 내 것 유지
                       } else if (sv != null) {
-                          if (sv != mine) changed = true
-                          out.add(RItem.of(JSONObject(sv)))
+                          if (sv != mine) { changed = true; x.copyFrom(RItem.of(JSONObject(sv))) }
+                          out.add(x)
                       } else {
                           changed = true                                       // 다른 사람이 지움
                       }
@@ -2788,6 +2792,11 @@ jobs:
               var seq: Int
           ) {
               fun key() = if (size.isNotBlank()) "$lot|$size" else lot
+              /** 같은 객체를 유지한 채 값만 바꾸기 (화면에서 잡고 있는 참조가 안 끊기게) */
+              fun copyFrom(o: RItem) {
+                  mk = o.mk; lot = o.lot; name = o.name; qty = o.qty; size = o.size
+                  bl = o.bl; inDate = o.inDate; loc = o.loc; batch = o.batch; seq = o.seq
+              }
               fun toJson(): JSONObject = JSONObject().apply {
                   put("id", id); put("mk", mk); put("lot", lot); put("name", name); put("qty", qty); put("size", size)
                   put("bl", bl); put("in", inDate); put("loc", loc); put("batch", batch); put("seq", seq)
