@@ -2612,8 +2612,8 @@ jobs:
                       runOnUiThread {
                           flushing = false
                           if (err.isEmpty()) {
-                              for ((id, js) in sentItems) if (js == null) syncedItems.remove(id) else syncedItems[id] = js
-                              for ((k, js) in sentRefs) if (js == null) syncedRefs.remove(k) else syncedRefs[k] = js
+                              for ((id, js) in sentItems) { if (js == null) syncedItems.remove(id) else syncedItems[id] = js }
+                              for ((k, js) in sentRefs) { if (js == null) syncedRefs.remove(k) else syncedRefs[k] = js }
                               syncedHistN = histTo
                               syncErr = ""; syncAt = SimpleDateFormat("HH:mm:ss", Locale.KOREA).format(Date())
                               saveLocal()
@@ -2669,9 +2669,14 @@ jobs:
                       val mine = x.toJson().toString()
                       val dirty = syncedItems[x.id] != mine
                       val sv = server[x.id]
-                      if (dirty) out.add(x)                                   // 내가 바꾼 건 내 것 유지
-                      else if (sv != null) { if (sv != mine) changed = true; out.add(RItem.of(JSONObject(sv))) }
-                      else changed = true                                      // 다른 사람이 지움
+                      if (dirty) {
+                          out.add(x)                                           // 내가 바꾼 건 내 것 유지
+                      } else if (sv != null) {
+                          if (sv != mine) changed = true
+                          out.add(RItem.of(JSONObject(sv)))
+                      } else {
+                          changed = true                                       // 다른 사람이 지움
+                      }
                   }
                   for ((id, js) in server) if (!local.containsKey(id) && id !in pendingDel) { out.add(RItem.of(JSONObject(js))); changed = true }
                   items.clear(); items.addAll(out)
@@ -2689,9 +2694,14 @@ jobs:
                   for ((k, r) in localRefs) {
                       val mine = r.toJson().toString()
                       val sv = sref[k]
-                      if (syncedRefs[k] != mine) newRefs[r.lot] = r
-                      else if (sv != null) { val rr = RRef.of(JSONObject(sv)); newRefs[rr.lot] = rr; if (sv != mine) changed = true }
-                      else changed = true
+                      if (syncedRefs[k] != mine) {
+                          newRefs[r.lot] = r
+                      } else if (sv != null) {
+                          val rr = RRef.of(JSONObject(sv)); newRefs[rr.lot] = rr
+                          if (sv != mine) changed = true
+                      } else {
+                          changed = true
+                      }
                   }
                   for ((k, js) in sref) if (!localRefs.containsKey(k) && k !in pendingRefDel) { val rr = RRef.of(JSONObject(js)); newRefs[rr.lot] = rr; changed = true }
                   refs.clear(); refs.putAll(newRefs)
@@ -3160,6 +3170,8 @@ jobs:
           FB_URL: ${{ secrets.FIREBASE_URL }}
           FB_KEY: ${{ secrets.FIREBASE_KEY }}
         run: |
+          FB_URL=$(printf '%s' "$FB_URL" | tr -d '[:space:]"\\$')
+          FB_KEY=$(printf '%s' "$FB_KEY" | tr -d '[:space:]"\\$')
           printf 'package com.nakyung.a2dock\nobject BuildInfo {\n    const val REPO = "%s"\n    const val BUILD = %s\n    const val FB_URL = "%s"\n    const val FB_KEY = "%s"\n}\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_NUMBER" "$FB_URL" "$FB_KEY" > app/src/main/java/com/nakyung/a2dock/BuildInfo.kt
           if [ -z "$FB_URL" ]; then echo "::warning::FIREBASE_URL secret 없음 - 공유 꺼진 상태로 빌드"; fi
 
