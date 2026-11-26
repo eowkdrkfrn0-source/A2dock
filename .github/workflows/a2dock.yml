@@ -2527,6 +2527,32 @@ jobs:
                   } catch (e: Exception) { }
               }
 
+              private fun load() {
+                  try {
+                      val f = File(filesDir, "rack.json")
+                      if (f.exists()) {
+                          val o = JSONObject(f.readText())
+                          o.optJSONArray("items")?.let { a -> for (i in 0 until a.length()) items.add(RItem.of(a.getJSONObject(i))) }
+                          o.optJSONArray("refs")?.let { a -> for (i in 0 until a.length()) { val r = RRef.of(a.getJSONObject(i)); refs[r.lot] = r } }
+                          o.optJSONArray("hist")?.let { a -> for (i in 0 until a.length()) hist.add(a.getJSONObject(i)) }
+                          o.optJSONArray("recent")?.let { a -> for (i in 0 until a.length()) recentBl.add(a.getString(i)) }
+                          curBatch = o.optString("batch"); batchDate = o.optString("bdate"); batchSeq = o.optInt("bseq")
+                          lastPlacedLoc = o.optString("lastPlaced"); histN = o.optLong("hn")
+                          o.optJSONObject("sItems")?.let { j ->
+                              for (k in j.keys()) {
+                                  val id = k.toLongOrNull() ?: continue
+                                  syncedItems[id] = j.optString(k)
+                              }
+                          }
+                          o.optJSONObject("sRefs")?.let { j -> for (k in j.keys()) syncedRefs[k] = j.optString(k) }
+                          syncedHistN = o.optLong("sHist")
+                      }
+                  } catch (e: Exception) { }
+                  val ll = getSharedPreferences("rack", MODE_PRIVATE).getString("lastLoc", "") ?: ""
+                  if (ll.isNotEmpty()) setPickFrom(ll)
+                  if (batchDate.isEmpty()) batchDate = today()
+              }
+
               // ======================= Firebase 공유 =======================
               private val handler = Handler(Looper.getMainLooper())
               private val flushRun = Runnable { flush() }
