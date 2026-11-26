@@ -288,9 +288,9 @@ jobs:
                   window.navigationBarColor = BG
                   load()
                   onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-                      override fun handleOnBackPressed() { if (screen == "main") finish() else showMain() }
+                      override fun handleOnBackPressed() { when (screen) { "home" -> finish(); "main", "hist" -> showHome(); else -> showMain() } }
                   })
-                  showMain()
+                  openTab(intent?.getStringExtra("tab") ?: "home")
                   if (Fb.enabled) askName()
               }
 
@@ -298,6 +298,7 @@ jobs:
                   super.onResume()
                   Gate.resume(this)
                   startDock()
+                  if (screen == "home" || screen == "hist") refreshTab()
               }
 
               override fun onPause() {
@@ -360,7 +361,7 @@ jobs:
 
               private fun card(): LinearLayout = LinearLayout(this).apply {
                   orientation = LinearLayout.VERTICAL
-                  background = round(CARD, 16)
+                  background = round(CARD, 16).apply { setStroke(dp(1), Ui.LINE) }
                   setPadding(dp(14), dp(12), dp(14), dp(12))
                   layoutParams = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(6), 0, dp(6)) }
               }
@@ -474,17 +475,13 @@ jobs:
                   // 아래 버튼
                   root.addView(row(
                       btn("＋ 빈자리", Color.rgb(40, 80, 55)) { addGapDialog() },
-                      btn("↩ 되돌리기", Color.rgb(90, 70, 40)) { undo() },
-                      btn("📋 기록") { showHistory() }
+                      btn("↩ 되돌리기", Color.rgb(90, 70, 40)) { undo() }
                   ))
-                  root.addView(btn("📦 랙 재고 (A·B랙 · 평치)", Color.rgb(37, 99, 235)) {
-                      startActivity(Intent(this, RackActivity::class.java))
-                  }.apply { textSize = 17f; minHeight = dp(54) })
                   root.addView(row(
                       btn("＋ 입고", TEAL) { showInbound(null, null) }.apply { textSize = 19f; minHeight = dp(58) },
                       btn("－ 출고", DANGER) { showOutbound(null) }.apply { textSize = 19f; minHeight = dp(58) }
                   ))
-                  setContentView(root)
+                  withTabs(root, "dock")
               }
 
               private fun slotView(s: Slot): LinearLayout = LinearLayout(this).apply {
@@ -779,33 +776,221 @@ jobs:
                   }
               }
 
+              // ======================= 하단 탭 =======================
+              override fun onNewIntent(intent: Intent) {
+                  super.onNewIntent(intent)
+                  intent.getStringExtra("tab")?.let { openTab(it) }
+              }
+
+              private fun openTab(t: String) {
+                  when (t) {
+                      "rack" -> { startActivity(Intent(this, RackActivity::class.java)); overridePendingTransition(0, 0) }
+                      "dock" -> showMain()
+                      "hist" -> showHistory()
+                      else -> showHome()
+                  }
+              }
+
+              private fun refreshTab() {
+                  when (screen) { "main" -> showMain(); "home" -> showHome(); "hist" -> showHistory() }
+              }
+
+              private fun withTabs(content: View, tab: String) {
+                  val outer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG) }
+                  outer.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
+                  outer.addView(Ui.tabBar(this, tab) { t -> openTab(t) })
+                  setContentView(outer)
+              }
+
+              private fun tabPage(root: LinearLayout, tab: String) {
+                  val y = if (screen == lastTabScreen) tabScroll?.scrollY ?: 0 else 0
+                  val sv = ScrollView(this).apply { setBackgroundColor(BG); isFillViewport = true; addView(root) }
+                  tabScroll = sv; lastTabScreen = screen
+                  withTabs(sv, tab)
+                  if (y > 0) sv.post { sv.scrollTo(0, y) }
+              }
+              private var tabScroll: ScrollView? = null
+              private var lastTabScreen = ""
+
+              private fun section(t: String): TextView = label(t, 13f, SUB, true).apply { setPadding(dp(4), dp(16), 0, dp(2)) }
+
+              private fun heroHead(): LinearLayout = LinearLayout(this).apply {
+                  orientation = LinearLayout.VERTICAL
+                  background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(Color.rgb(30, 64, 175), Color.rgb(13, 148, 136)))
+                      .apply { cornerRadius = dp(16).toFloat() }
+                  setPadding(dp(16), dp(14), dp(16), dp(14))
+              }
+
+              private fun shareText(): String = when {
+                  dockErr.isNotEmpty() -> "⚠ 공유 실패: $dockErr"
+                  !dockReady -> "공유: 받아오는 중…"
+                  else -> "● 공유 연결됨 · ${Fb.userName(this)}"
+              }
+
+              // ---------- 랙 재고 요약 (이 폰에 저장된 rack.json) ----------
+              private class RackSum(val total: Int, val a: Int, val b: Int, val f: Int, val noBl: Int, val batch: String, val wait: Int, val hist: List<JSONObject>)
+
+              private fun readRack(): RackSum {
+                  var t = 0; var a = 0; var b = 0; var f = 0; var nb = 0; var wait = 0; var batch = ""
+                  val hs = ArrayList<JSONObject>()
+                  try {
+                      val fl = File(filesDir, "rack.json")
+                      if (fl.exists()) {
+                          val o = JSONObject(fl.readText())
+                          batch = o.optString("batch")
+                          o.optJSONArray("items")?.let { arr ->
+                              for (i in 0 until arr.length()) {
+                                  val x = RItem.of(arr.getJSONObject(i))
+                                  if (x.loc.isEmpty()) { if (batch.isNotEmpty() && x.batch == batch) wait++; continue }
+                                  t++
+                                  when { x.loc == "평치" -> f++; x.loc.startsWith("A") -> a++; x.loc.startsWith("B") -> b++ }
+                                  if (x.bl.isBlank()) nb++
+                              }
+                          }
+                          o.optJSONArray("hist")?.let { arr -> for (i in 0 until arr.length()) hs.add(arr.getJSONObject(i)) }
+                      }
+                  } catch (e: Exception) { }
+                  return RackSum(t, a, b, f, nb, batch, wait, hs)
+              }
+
+              // ======================= 홈 (오늘 현황) =======================
+              private fun showHome() {
+                  screen = "home"
+                  val root = vbox()
+                  val head = heroHead()
+                  head.addView(label("A2 도크", 24f, Color.WHITE, true))
+                  val user = Fb.userName(this)
+                  head.addView(label(SimpleDateFormat("yyyy.MM.dd (E)", Locale.KOREA).format(Date()) + if (user.isNotBlank()) "  ·  👤 $user" else "", 13f, Color.argb(225, 255, 255, 255)))
+                  if (Fb.enabled) head.addView(label(shareText(), 12f, if (dockErr.isNotEmpty()) Color.rgb(255, 200, 190) else Color.argb(210, 200, 255, 220)))
+                  root.addView(head)
+
+                  // 도크
+                  val bls = allBl()
+                  val gapL = left.filter { it.gap }.sumOf { it.lines }; val gapR = right.filter { it.gap }.sumOf { it.lines }
+                  val useL = left.filter { !it.gap }.sumOf { it.lines }; val useR = right.filter { !it.gap }.sumOf { it.lines }
+                  root.addView(section("▦  도크"))
+                  val dc = card()
+                  dc.addView(row(Ui.stat(this, "${bls.size}", "B/L"), Ui.stat(this, "${bls.sumOf { it.second.pallets }}", "파레트"), Ui.stat(this, "${gapL + gapR}", "빈자리 줄", GREEN)))
+                  dc.addView(row(
+                      label("◀ 좌측  ${useL}줄 · 빈 ${gapL}", 13f, SUB).apply { gravity = Gravity.CENTER },
+                      label("우측 ▶  ${useR}줄 · 빈 ${gapR}", 13f, SUB).apply { gravity = Gravity.CENTER }
+                  ))
+                  dc.addView(row(
+                      btn("＋ 입고", TEAL) { showInbound(null, null) },
+                      btn("－ 출고", DANGER) { showOutbound(null) },
+                      btn("배치도 ›", PRIMARY) { showMain() }
+                  ))
+                  root.addView(dc)
+
+                  // 랙 재고
+                  val rk = readRack()
+                  root.addView(section("▤  랙 재고"))
+                  val rc = card()
+                  rc.addView(row(Ui.stat(this, "${rk.total}", "총 재고"), Ui.stat(this, "${rk.a}", "A랙"), Ui.stat(this, "${rk.b}", "B랙"), Ui.stat(this, "${rk.f}", "평치")))
+                  if (rk.batch.isNotEmpty()) rc.addView(label("● 입고 진행 중 · ${rk.batch} · 적치 대기 ${rk.wait}개", 14f, Color.rgb(120, 190, 255), true))
+                  if (rk.noBl > 0) rc.addView(label("⚠ B/L 없는 재고 ${rk.noBl}개", 14f, GOLD, true))
+                  rc.addView(btn("랙 재고 열기 ›", PRIMARY) { openTab("rack") })
+                  rc.addView(label("이 폰에 저장된 기준 · 랙 재고를 열면 최신으로 바뀌어요", 11f, Ui.DIM).apply { gravity = Gravity.CENTER })
+                  root.addView(rc)
+
+                  // 오늘 작업
+                  val md = SimpleDateFormat("MM/dd", Locale.KOREA).format(Date())
+                  val ymd = SimpleDateFormat("yyyy-MM-dd", Locale.KOREA).format(Date())
+                  val dToday = history.map { it.split("|") }.filter { it.size > 1 && it[0].startsWith(md) }
+                  val rToday = rk.hist.filter { it.optString("t").startsWith(ymd) }
+                  root.addView(section("☰  오늘 작업"))
+                  val oc = card()
+                  oc.addView(row(
+                      Ui.stat(this, "${dToday.count { it[1] == "입고" }}", "도크 입고", GREEN),
+                      Ui.stat(this, "${dToday.count { it[1] == "출고" }}", "도크 출고", Color.rgb(255, 140, 120)),
+                      Ui.stat(this, "${rToday.count { it.optString("k") == "입고" }}", "랙 입고", GREEN),
+                      Ui.stat(this, "${rToday.count { it.optString("k") == "출고" }}", "랙 출고", Color.rgb(255, 140, 120))
+                  ))
+                  val mv = rToday.count { it.optString("k") == "이동" }
+                  if (mv > 0) oc.addView(label("랙 이동 ${mv}건", 13f, SUB).apply { gravity = Gravity.CENTER })
+                  oc.addView(btn("기록 보기 ›") { showHistory() })
+                  root.addView(oc)
+
+                  // 앱
+                  root.addView(section("앱"))
+                  val ac = card()
+                  ac.addView(row(
+                      label("버전 ${BuildInfo.BUILD}", 14f, SUB).apply { gravity = Gravity.CENTER_VERTICAL },
+                      btn("업데이트 확인") { Gate.check(true) }
+                  ))
+                  root.addView(ac)
+                  tabPage(root, "home")
+              }
+
+              // ======================= 기록 (도크 / 랙) =======================
+              private var histTab = "dock"
+
+              private fun showHistory() {
+                  screen = "hist"
+                  val root = vbox()
+                  root.addView(label("입출고 기록", 24f, Color.WHITE, true).apply { setPadding(dp(4), dp(4), 0, dp(8)) })
+                  val seg = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL; background = round(CARD, 12); setPadding(dp(4), dp(4), dp(4), dp(4))
+                  }
+                  for ((k, n) in listOf("dock" to "▦ 도크", "rack" to "▤ 랙 재고")) {
+                      val on = histTab == k
+                      seg.addView(Button(this).apply {
+                          text = n; textSize = 16f; isAllCaps = false; setTypeface(typeface, Typeface.BOLD)
+                          setTextColor(if (on) Color.WHITE else SUB); stateListAnimator = null
+                          background = round(if (on) PRIMARY else CARD, 9)
+                          setOnClickListener { if (!on) { histTab = k; showHistory() } }
+                      }, LinearLayout.LayoutParams(0, dp(46), 1f).apply { setMargins(dp(2), 0, dp(2), 0) })
+                  }
+                  root.addView(seg, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) })
+
+                  if (histTab == "dock") {
+                      root.addView(row(btn("공유 (엑셀용 CSV)", PRIMARY) { shareCsv() }, btn("기록 지우기", Color.rgb(70, 40, 46)) {
+                          AlertDialog.Builder(this).setMessage("도크 입출고 기록만 지웁니다. (배치도는 그대로)")
+                              .setPositiveButton("지우기") { _, _ -> history.clear(); save(); showHistory() }
+                              .setNegativeButton("취소", null).show()
+                      }))
+                      if (history.isEmpty()) root.addView(label("기록이 없습니다", 15f, SUB).apply { gravity = Gravity.CENTER; setPadding(0, dp(30), 0, 0) })
+                      var lastDay = ""
+                      for (h in history.take(500)) {
+                          val p = h.split("|")
+                          if (p.size < 7) continue
+                          val day = p[0].take(5)
+                          if (day != lastDay) { lastDay = day; root.addView(section("📅 $day")) }
+                          val inb = p[1] == "입고"
+                          val c = card()
+                          c.addView(label("${if (inb) "＋ 입고" else "－ 출고"}   ${p[2]}", 16f, if (inb) GREEN else Color.rgb(255, 140, 120), true))
+                          c.addView(label("${p[0].drop(6)} · ${p[5]} · ${p[3]}P · ${p[4]}줄" + (if (p[6].isNotBlank()) " · ${p[6]}" else "") + (if (p.size > 7 && p[7].isNotBlank()) " · 👤${p[7]}" else ""), 13f, SUB))
+                          root.addView(c)
+                      }
+                  } else {
+                      val hs = readRack().hist.asReversed().take(500)
+                      root.addView(label("최근 ${hs.size}건  ·  엑셀은 랙 재고 → 엑셀 내보내기", 12f, SUB).apply { setPadding(dp(4), dp(4), 0, 0) })
+                      if (hs.isEmpty()) root.addView(label("기록이 없습니다", 15f, SUB).apply { gravity = Gravity.CENTER; setPadding(0, dp(30), 0, 0) })
+                      var lastDay = ""
+                      for (h in hs) {
+                          val t = h.optString("t"); val k = h.optString("k")
+                          val day = t.take(10)
+                          if (day != lastDay) { lastDay = day; root.addView(section("📅 $day")) }
+                          val col = when (k) { "입고" -> GREEN; "출고" -> Color.rgb(255, 140, 120); "이동" -> Color.rgb(120, 190, 255); else -> GOLD }
+                          val sign = when (k) { "입고" -> "＋"; "출고" -> "－"; "이동" -> "⇄"; else -> "•" }
+                          val c = card()
+                          c.addView(label("$sign $k   ${h.optString("lot")}", 16f, col, true))
+                          val nm = h.optString("name")
+                          if (nm.isNotBlank()) c.addView(label(nm, 13f, Color.WHITE))
+                          val memo = h.optString("memo"); val bl = h.optString("bl"); val who = h.optString("who")
+                          c.addView(label(t.drop(11) + " · 📍" + (if (k == "이동" && memo.isNotBlank()) memo else h.optString("loc").ifBlank { "-" }) +
+                              (if (bl.isNotBlank()) " · B/L $bl" else "") + (if (who.isNotBlank()) " · 👤$who" else ""), 13f, SUB))
+                          root.addView(c)
+                      }
+                  }
+                  tabPage(root, "hist")
+              }
+
               // ======================= 기록 =======================
               private fun log(kind: String, s: Slot, side: Char) {
                   history.add(0, "${now()}|$kind|${s.bl}|${s.pallets}|${s.lines}|${sideName(side)}|${s.memo}|${Fb.userName(this)}")
                   if (history.size > 2000) history.removeAt(history.lastIndex)
                   save()
-              }
-
-              private fun showHistory() {
-                  screen = "hist"
-                  val root = vbox()
-                  root.addView(topBar("입출고 기록", PRIMARY))
-                  root.addView(row(btn("공유 (엑셀용 CSV)", PRIMARY) { shareCsv() }, btn("기록 지우기", Color.rgb(70, 40, 46)) {
-                      AlertDialog.Builder(this).setMessage("입출고 기록만 지웁니다. (배치도는 그대로)")
-                          .setPositiveButton("지우기") { _, _ -> history.clear(); save(); showHistory() }
-                          .setNegativeButton("취소", null).show()
-                  }))
-                  if (history.isEmpty()) root.addView(label("기록이 없습니다", 15f, SUB))
-                  for (h in history) {
-                      val p = h.split("|")
-                      if (p.size < 7) continue
-                      val inb = p[1] == "입고"
-                      val c = card()
-                      c.addView(label("${if (inb) "＋ 입고" else "－ 출고"}  ${p[2]}", 16f, if (inb) GREEN else Color.rgb(255, 140, 120), true))
-                      c.addView(label("${p[0]} · ${p[5]} · ${p[3]}P · ${p[4]}줄" + (if (p[6].isNotBlank()) " · ${p[6]}" else "") + (if (p.size > 7 && p[7].isNotBlank()) " · 👤${p[7]}" else ""), 13f, SUB))
-                      root.addView(c)
-                  }
-                  page(root)
               }
 
               private fun shareCsv() {
@@ -832,7 +1017,7 @@ jobs:
                   f()
                   mergeGaps(left); mergeGaps(right)
                   save()
-                  if (screen == "main") showMain()
+                  refreshTab()
               }
 
               private fun undo() {
@@ -922,12 +1107,12 @@ jobs:
                   val localDirty = mine != lastDockLocal
                   if (s.isEmpty()) {
                       if (left.isNotEmpty() || right.isNotEmpty() || history.isNotEmpty()) pushDock()
-                      if (screen == "main") showMain()
+                      refreshTab()
                       return
                   }
                   if (s == lastDockServer) {
                       if (localDirty) pushDock()
-                      if ((wasErr || !dockShown) && screen == "main") showMain()
+                      if ((wasErr || !dockShown) && (screen == "main" || screen == "home")) refreshTab()
                       dockShown = true
                       return
                   }
@@ -939,7 +1124,7 @@ jobs:
                       lastDockLocal = stateJson().toString()
                       saveLocal()
                       dockShown = true
-                      if (screen == "main") showMain() else if (screen == "hist") showHistory()
+                      refreshTab()
                   } catch (e: Exception) { dockErr = "데이터 오류" }
               }
 
@@ -957,7 +1142,7 @@ jobs:
                           dockPushing = false
                           if (err.isEmpty()) { lastDockServer = st; lastDockLocal = st; dockErr = ""; saveLocal() }
                           else { dockErr = err; handler.postDelayed({ scheduleDockPush() }, 5000) }
-                          if (screen == "main") showMain()
+                          refreshTab()
                           if (dockAgain) { dockAgain = false; scheduleDockPush() }
                       }
                   }.start()
@@ -972,7 +1157,7 @@ jobs:
                   d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                       val n = e.text.toString().trim()
                       if (n.isEmpty()) toast("이름을 입력하세요")
-                      else { getSharedPreferences("rack", MODE_PRIVATE).edit().putString("user", n).apply(); d.dismiss(); showMain() }
+                      else { getSharedPreferences("rack", MODE_PRIVATE).edit().putString("user", n).apply(); d.dismiss(); refreshTab() }
                   }
               }
 
@@ -1493,7 +1678,7 @@ jobs:
 
               private fun card(color: Int = CARD, stroke: Int? = null): LinearLayout = LinearLayout(this).apply {
                   orientation = LinearLayout.VERTICAL
-                  background = round(color, 16, stroke)
+                  background = if (stroke != null) round(color, 16, stroke) else round(color, 16).apply { setStroke(dp(1), Ui.LINE) }
                   setPadding(dp(14), dp(12), dp(14), dp(12))
                   layoutParams = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(5), 0, dp(5)) }
               }
@@ -1535,6 +1720,24 @@ jobs:
               }
 
               private fun vbox(): LinearLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+              /** 랙 홈: 위 스크롤 + 아래 공통 탭 */
+              private fun tabPage(content: LinearLayout) {
+                  val inner = vroot()
+                  inner.addView(ScrollView(this).apply { addView(content) }, LinearLayout.LayoutParams(-1, 0, 1f))
+                  val outer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG) }
+                  outer.addView(inner, LinearLayout.LayoutParams(-1, 0, 1f))
+                  outer.addView(Ui.tabBar(this, "rack") { t -> goTab(t) })
+                  setContentView(outer)
+              }
+
+              private fun goTab(t: String) {
+                  save()
+                  startActivity(Intent(this, MainActivity::class.java).putExtra("tab", t)
+                      .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+                  finish()
+                  overridePendingTransition(0, 0)
+              }
 
               private fun buzz(ms: Long = 70) {
                   try {
@@ -1681,9 +1884,7 @@ jobs:
                       else -> "공유 연결됨 ✓ ${userName()}" + if (syncAt.isNotEmpty()) " · 마지막 전송 $syncAt" else ""
                   }
                   content.addView(label(fbTxt, 12f, if (syncErr.isNotEmpty()) RED else GREEN).apply { gravity = Gravity.CENTER })
-                  content.addView(btn("업데이트 확인", GREY) { Gate.check(true) }.apply { minHeight = dp(42); textSize = 14f })
-                  content.addView(label("버전 ${BuildInfo.BUILD}", 11f, DIM).apply { gravity = Gravity.CENTER })
-                  page(topBar("랙 재고", "A2 도크", BLUE) { finish() }, content, null)
+                  tabPage(content)
               }
 
               // ======================= 입고: 라벨 찍기 =======================
@@ -3236,6 +3437,81 @@ jobs:
                   else files.keys.filter { it.startsWith("xl/worksheets/sheet") && it.endsWith(".xml") }.minOrNull()
                   val sheet = sheetName?.let { files[it] } ?: return emptyList()
                   return parseSheet(sheet, sst)
+              }
+          }
+          TALLY_EOF
+          mkdir -p "app/src/main/java/com/nakyung/a2dock"
+          cat > 'app/src/main/java/com/nakyung/a2dock/Ui.kt' <<'TALLY_EOF'
+          package com.nakyung.a2dock
+
+          import android.content.Context
+          import android.content.res.ColorStateList
+          import android.graphics.Color
+          import android.graphics.Typeface
+          import android.graphics.drawable.GradientDrawable
+          import android.graphics.drawable.LayerDrawable
+          import android.graphics.drawable.RippleDrawable
+          import android.view.Gravity
+          import android.widget.LinearLayout
+          import android.widget.TextView
+
+          /** 앱 공통 디자인: 색·하단 탭·숫자 타일 */
+          object Ui {
+              val BG = Color.rgb(16, 18, 23)
+              val LINE = Color.rgb(42, 48, 60)
+              val TILE = Color.rgb(36, 41, 52)
+              val ACCENT = Color.rgb(59, 130, 246)
+              val SUB = Color.rgb(160, 168, 184)
+              val DIM = Color.rgb(104, 112, 128)
+              val TAB_BG = Color.rgb(22, 25, 32)
+
+              private val TABS = listOf(
+                  Triple("home", "⌂", "홈"),
+                  Triple("dock", "▦", "도크"),
+                  Triple("rack", "▤", "랙 재고"),
+                  Triple("hist", "☰", "기록")
+              )
+
+              private fun dp(c: Context, v: Int) = (v * c.resources.displayMetrics.density).toInt()
+
+              /** 하단 탭 */
+              fun tabBar(c: Context, cur: String, onTab: (String) -> Unit): LinearLayout = LinearLayout(c).apply {
+                  orientation = LinearLayout.HORIZONTAL
+                  background = LayerDrawable(arrayOf(GradientDrawable().apply { setColor(LINE) }, GradientDrawable().apply { setColor(TAB_BG) }))
+                      .apply { setLayerInset(1, 0, dp(c, 1), 0, 0) }
+                  setPadding(dp(c, 6), dp(c, 7), dp(c, 6), dp(c, 7))
+                  for ((key, icon, name) in TABS) {
+                      val on = key == cur
+                      val r = dp(c, 14).toFloat()
+                      val item = LinearLayout(c).apply {
+                          orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+                          setPadding(0, dp(c, 5), 0, dp(c, 5))
+                          background = RippleDrawable(ColorStateList.valueOf(Color.argb(50, 255, 255, 255)),
+                              GradientDrawable().apply { cornerRadius = r; setColor(if (on) Color.argb(55, 59, 130, 246) else Color.TRANSPARENT) },
+                              GradientDrawable().apply { cornerRadius = r; setColor(Color.WHITE) })
+                          addView(TextView(c).apply {
+                              text = icon; textSize = 21f; gravity = Gravity.CENTER; includeFontPadding = false
+                              setTextColor(if (on) ACCENT else DIM); setTypeface(typeface, Typeface.BOLD)
+                          })
+                          addView(TextView(c).apply {
+                              text = name; textSize = 12f; gravity = Gravity.CENTER
+                              setTextColor(if (on) Color.WHITE else DIM)
+                              if (on) setTypeface(typeface, Typeface.BOLD)
+                          })
+                          isClickable = true
+                          setOnClickListener { if (!on) onTab(key) }
+                      }
+                      addView(item, LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(dp(c, 3), 0, dp(c, 3), 0) })
+                  }
+              }
+
+              /** 큰 숫자 + 이름 타일 */
+              fun stat(c: Context, value: String, name: String, color: Int = Color.WHITE): LinearLayout = LinearLayout(c).apply {
+                  orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+                  background = GradientDrawable().apply { setColor(TILE); cornerRadius = dp(c, 12).toFloat() }
+                  setPadding(dp(c, 4), dp(c, 10), dp(c, 4), dp(c, 10))
+                  addView(TextView(c).apply { text = value; textSize = 22f; gravity = Gravity.CENTER; setTextColor(color); setTypeface(typeface, Typeface.BOLD) })
+                  addView(TextView(c).apply { text = name; textSize = 12f; gravity = Gravity.CENTER; setTextColor(SUB) })
               }
           }
           TALLY_EOF
