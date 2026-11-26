@@ -1117,6 +1117,8 @@ jobs:
           import android.net.Uri
           import android.os.Build
           import android.os.Bundle
+          import android.os.Handler
+          import android.os.Looper
           import android.os.VibrationEffect
           import android.os.Vibrator
           import android.text.InputType
@@ -1156,6 +1158,8 @@ jobs:
           import org.json.JSONArray
           import org.json.JSONObject
           import java.io.File
+          import java.net.HttpURLConnection
+          import java.net.URL
           import java.text.SimpleDateFormat
           import java.util.Calendar
           import java.util.Date
@@ -1173,6 +1177,7 @@ jobs:
               private var curBatch = ""
               private var batchDate = ""
               private var batchSeq = 0
+              private var histN = 0L
 
               // ---------- 화면 상태 ----------
               private var screen = "home"
@@ -1254,6 +1259,8 @@ jobs:
                       override fun handleOnBackPressed() = goBack()
                   })
                   if (!handleShare(intent)) showHome()
+                  askName { }
+                  scheduleFetch(0)
               }
 
               override fun onNewIntent(intent: Intent) {
@@ -1265,11 +1272,14 @@ jobs:
                   super.onResume()
                   Gate.resume(this)
                   if (screen == "scan") scanning = true
+                  startListen()
+                  scheduleFetch(200)
               }
 
               override fun onPause() {
                   Gate.pause(this)
                   scanning = false
+                  stopListen()
                   save()
                   super.onPause()
               }
@@ -1546,10 +1556,15 @@ jobs:
                       btn("B/L 입력" + if (noBl > 0) " ($noBl)" else "", Color.rgb(90, 60, 160)) { blSel.clear(); showBl() },
                       btn("재고 목록·대조 (${refs.size})", GREY) { showRef() }
                   ))
-                  content.addView(row(
-                      btn("엑셀 내보내기", Color.rgb(30, 110, 70)) { exportXlsx() },
-                      btn("업데이트 확인", GREY) { Gate.check(true) }
-                  ))
+                  content.addView(btn("엑셀 내보내기", Color.rgb(30, 110, 70)) { exportXlsx() })
+                  val fbTxt = when {
+                      !Fb.enabled -> "공유 꺼짐 (Firebase 설정 안 됨) · 이 폰에만 저장"
+                      syncErr.isNotEmpty() -> "⚠ 공유 실패: $syncErr (자동으로 다시 시도)"
+                      !fetchedOnce -> "공유: 받아오는 중…"
+                      else -> "공유 연결됨 ✓ ${userName()}" + if (syncAt.isNotEmpty()) " · 마지막 전송 $syncAt" else ""
+                  }
+                  content.addView(label(fbTxt, 12f, if (syncErr.isNotEmpty()) RED else GREEN).apply { gravity = Gravity.CENTER })
+                  content.addView(btn("업데이트 확인", GREY) { Gate.check(true) }.apply { minHeight = dp(42); textSize = 14f })
                   content.addView(label("버전 ${BuildInfo.BUILD}", 11f, DIM).apply { gravity = Gravity.CENTER })
                   page(topBar("랙 재고", "A2 도크", BLUE) { finish() }, content, null)
               }
@@ -1564,7 +1579,7 @@ jobs:
                   val p = getSharedPreferences("rack", MODE_PRIVATE)
                   val n = p.getInt("bc_$d", 0) + 1
                   p.edit().putInt("bc_$d", n).apply()
-                  curBatch = "${shortDate(d)} ${circled(n)}"
+                  curBatch = "${shortDate(d)} ${circled(n)} ${userName()}".trim()
                   batchDate = d
                   batchSeq = 0
                   lastPlacedLoc = ""
@@ -2453,15 +2468,20 @@ jobs:
 
               // ======================= 엑셀 =======================
               private fun exportXlsx() {
+                  toast("엑셀 만드는 중…")
+                  fetchHist { hs -> exportXlsx2(hs) }
+              }
+
+              private fun exportXlsx2(hs: List<JSONObject>) {
                   try {
                       val st = stock().sortedBy { locSortKey(it.loc) }
                       val s1 = ArrayList<List<String>>()
                       s1.add(listOf("위치", "제조사", "품명", "LOT", "사이즈", "수량", "입고일", "B/L", "입고건"))
                       for (x in st) s1.add(listOf(x.loc, x.mk, x.name, x.lot, x.size, x.qty, x.inDate, x.bl, x.batch))
                       val s2 = ArrayList<List<String>>()
-                      s2.add(listOf("시각", "구분", "LOT", "품명", "위치", "B/L", "입고일", "메모"))
-                      for (h in hist.asReversed()) s2.add(listOf(h.optString("t"), h.optString("k"), h.optString("lot"), h.optString("name"),
-                          h.optString("loc"), h.optString("bl"), h.optString("in"), h.optString("memo")))
+                      s2.add(listOf("시각", "구분", "LOT", "품명", "위치", "B/L", "입고일", "메모", "작업자"))
+                      for (h in hs.asReversed()) s2.add(listOf(h.optString("t"), h.optString("k"), h.optString("lot"), h.optString("name"),
+                          h.optString("loc"), h.optString("bl"), h.optString("in"), h.optString("memo"), h.optString("who")))
                       val name = "랙재고_" + SimpleDateFormat("yyyyMMdd_HHmm", Locale.KOREA).format(Date()) + ".xlsx"
                       val f = File(File(cacheDir, "x"), name)
                       XlsxWrite.write(f, listOf("재고" to s1, "이력" to s2))
@@ -2477,20 +2497,29 @@ jobs:
               // ======================= 기록·저장 =======================
               private fun log(kind: String, it: RItem, memo: String = "") {
                   hist.add(JSONObject().apply {
-                      put("t", stamp()); put("k", kind); put("lot", it.lot); put("name", it.name)
+                      histN++
+                      put("n", histN); put("t", stamp()); put("k", kind); put("who", userName()); put("lot", it.lot); put("name", it.name)
                       put("loc", it.loc); put("bl", it.bl); put("in", it.inDate); put("memo", memo)
                   })
                   while (hist.size > 5000) hist.removeAt(0)
               }
 
               private fun save() {
+                  saveLocal()
+                  scheduleFlush()
+              }
+
+              private fun saveLocal() {
                   try {
                       val o = JSONObject()
                       o.put("items", JSONArray().apply { items.forEach { put(it.toJson()) } })
                       o.put("refs", JSONArray().apply { refs.values.forEach { put(it.toJson()) } })
                       o.put("hist", JSONArray().apply { hist.forEach { put(it) } })
                       o.put("recent", JSONArray().apply { recentBl.forEach { put(it) } })
-                      o.put("batch", curBatch); o.put("bdate", batchDate); o.put("bseq", batchSeq); o.put("lastPlaced", lastPlacedLoc)
+                      o.put("batch", curBatch); o.put("bdate", batchDate); o.put("bseq", batchSeq); o.put("lastPlaced", lastPlacedLoc); o.put("hn", histN)
+                      o.put("sItems", JSONObject().apply { for ((k, v) in syncedItems) put(k.toString(), v) })
+                      o.put("sRefs", JSONObject().apply { for ((k, v) in syncedRefs) put(k, v) })
+                      o.put("sHist", syncedHistN)
                       val f = File(filesDir, "rack.json")
                       val tmp = File(filesDir, "rack.json.tmp")
                       tmp.writeText(o.toString())
@@ -2498,22 +2527,202 @@ jobs:
                   } catch (e: Exception) { }
               }
 
-              private fun load() {
-                  try {
-                      val f = File(filesDir, "rack.json")
-                      if (f.exists()) {
-                          val o = JSONObject(f.readText())
-                          o.optJSONArray("items")?.let { a -> for (i in 0 until a.length()) items.add(RItem.of(a.getJSONObject(i))) }
-                          o.optJSONArray("refs")?.let { a -> for (i in 0 until a.length()) { val r = RRef.of(a.getJSONObject(i)); refs[r.lot] = r } }
-                          o.optJSONArray("hist")?.let { a -> for (i in 0 until a.length()) hist.add(a.getJSONObject(i)) }
-                          o.optJSONArray("recent")?.let { a -> for (i in 0 until a.length()) recentBl.add(a.getString(i)) }
-                          curBatch = o.optString("batch"); batchDate = o.optString("bdate"); batchSeq = o.optInt("bseq"); lastPlacedLoc = o.optString("lastPlaced")
-                      }
-                  } catch (e: Exception) { }
-                  val ll = getSharedPreferences("rack", MODE_PRIVATE).getString("lastLoc", "") ?: ""
-                  if (ll.isNotEmpty()) setPickFrom(ll)
-                  if (batchDate.isEmpty()) batchDate = today()
+              // ======================= Firebase 공유 =======================
+              private val handler = Handler(Looper.getMainLooper())
+              private val flushRun = Runnable { flush() }
+              private val fetchRun = Runnable { fetchRemote() }
+              private val syncedItems = HashMap<Long, String>()   // 서버에 있는 상태 (id → json)
+              private val syncedRefs = HashMap<String, String>()
+              private var syncedHistN = 0L
+              private var fetchedOnce = false
+              private var flushing = false
+              private var flushAgain = false
+              private var fetching = false
+              private var syncErr = ""
+              private var syncAt = ""
+              @Volatile private var listenGen = 0
+              private val rprefs by lazy { getSharedPreferences("rack", MODE_PRIVATE) }
+
+              private fun userName(): String = rprefs.getString("user", "") ?: ""
+              private fun devCode(): String {
+                  val id = try { android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ANDROID_ID) } catch (e: Exception) { null } ?: "x"
+                  return id.uppercase().filter { it.isLetterOrDigit() }.take(8)
               }
+
+              private fun askName(next: () -> Unit) {
+                  if (userName().isNotBlank()) { next(); return }
+                  val e = field("이름 (예: 윤나경)", "", false)
+                  val box = vbox().apply { setPadding(dp(20), dp(8), dp(20), 0); addView(e) }
+                  val d = AlertDialog.Builder(this).setTitle("사용자 이름")
+                      .setMessage("입고·출고·이동 기록에 누가 했는지 남아요. 처음 한 번만 입력하세요.")
+                      .setView(box).setCancelable(false).setPositiveButton("확인", null).show()
+                  d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                      val n = e.text.toString().trim()
+                      if (n.isEmpty()) toast("이름을 입력하세요") else { rprefs.edit().putString("user", n).apply(); d.dismiss(); next() }
+                  }
+              }
+
+              private fun scheduleFlush() {
+                  if (!Fb.enabled) return
+                  handler.removeCallbacks(flushRun)
+                  handler.postDelayed(flushRun, 400)
+              }
+
+              private fun scheduleFetch(delay: Long = 600) {
+                  if (!Fb.enabled) return
+                  handler.removeCallbacks(fetchRun)
+                  handler.postDelayed(fetchRun, delay)
+              }
+
+              private fun startListen() {
+                  if (!Fb.enabled) return
+                  val gen = ++listenGen
+                  Fb.listen("ver", { listenGen == gen }) { handler.post { scheduleFetch(400) } }
+              }
+
+              private fun stopListen() { listenGen++ }
+
+              /** 내 변경분만 골라서 서버에 올리기 */
+              private fun flush() {
+                  if (!Fb.enabled || !fetchedOnce) return
+                  if (flushing) { flushAgain = true; return }
+                  val body = JSONObject()
+                  val sentItems = HashMap<Long, String?>()
+                  val now = HashMap<Long, String>()
+                  for (x in items) now[x.id] = x.toJson().toString()
+                  for ((id, js) in now) if (syncedItems[id] != js) { body.put("items/$id", JSONObject(js)); sentItems[id] = js }
+                  for (id in syncedItems.keys) if (!now.containsKey(id)) { body.put("items/$id", JSONObject.NULL); sentItems[id] = null }
+                  val sentRefs = HashMap<String, String?>()
+                  val nowRefs = HashMap<String, String>()
+                  for (r in refs.values) nowRefs[Fb.safeKey(r.lot)] = r.toJson().toString()
+                  for ((k, js) in nowRefs) if (syncedRefs[k] != js) { body.put("refs/$k", JSONObject(js)); sentRefs[k] = js }
+                  for (k in syncedRefs.keys) if (!nowRefs.containsKey(k)) { body.put("refs/$k", JSONObject.NULL); sentRefs[k] = null }
+                  var maxN = syncedHistN
+                  for (h in hist) {
+                      val n = h.optLong("n")
+                      if (n > syncedHistN) { body.put("hist/${devCode()}_${String.format(Locale.US, "%08d", n)}", h); if (n > maxN) maxN = n }
+                  }
+                  if (body.length() == 0) return
+                  body.put("ver", JSONObject().put(".sv", "timestamp"))
+                  flushing = true
+                  val histTo = maxN
+                  Thread {
+                      var err = ""
+                      try { Fb.patchRoot(body) } catch (e: Exception) { err = e.message ?: "오류" }
+                      runOnUiThread {
+                          flushing = false
+                          if (err.isEmpty()) {
+                              for ((id, js) in sentItems) if (js == null) syncedItems.remove(id) else syncedItems[id] = js
+                              for ((k, js) in sentRefs) if (js == null) syncedRefs.remove(k) else syncedRefs[k] = js
+                              syncedHistN = histTo
+                              syncErr = ""; syncAt = SimpleDateFormat("HH:mm:ss", Locale.KOREA).format(Date())
+                              saveLocal()
+                          } else {
+                              syncErr = err
+                              handler.postDelayed({ scheduleFlush() }, 5000)
+                          }
+                          if (screen == "home") showHome()
+                          if (flushAgain) { flushAgain = false; scheduleFlush() }
+                      }
+                  }.start()
+              }
+
+              /** 서버 상태 받아서 합치기 (아직 안 올린 내 변경은 유지) */
+              private fun fetchRemote() {
+                  if (!Fb.enabled) return
+                  if (fetching) { scheduleFetch(800); return }
+                  fetching = true
+                  Thread {
+                      var it0: String? = null; var rf0: String? = null; var err = ""
+                      try { it0 = Fb.get("items"); rf0 = Fb.get("refs") } catch (e: Exception) { err = e.message ?: "오류" }
+                      val itTxt = it0; val rfTxt = rf0
+                      runOnUiThread {
+                          fetching = false
+                          if (err.isNotEmpty() || itTxt == null || rfTxt == null) {
+                              syncErr = err.ifEmpty { "받기 실패" }
+                              if (screen == "home") showHome()
+                              scheduleFetch(5000)
+                              return@runOnUiThread
+                          }
+                          val changed = mergeRemote(itTxt, rfTxt)
+                          fetchedOnce = true
+                          syncErr = ""
+                          saveLocal()
+                          scheduleFlush()
+                          if (changed) refreshView()
+                      }
+                  }.start()
+              }
+
+              private fun mergeRemote(itTxt: String, rfTxt: String): Boolean {
+                  val server = HashMap<Long, String>()
+                  if (itTxt.trim() != "null") {
+                      val o = JSONObject(itTxt)
+                      for (k in o.keys()) { val j = o.optJSONObject(k) ?: continue; val id = j.optLong("id"); if (id != 0L) server[id] = j.toString() }
+                  }
+                  val local = HashMap<Long, RItem>()
+                  for (x in items) local[x.id] = x
+                  val pendingDel = syncedItems.keys.filter { !local.containsKey(it) }.toHashSet()
+                  val out = ArrayList<RItem>()
+                  var changed = false
+                  for (x in items) {
+                      val mine = x.toJson().toString()
+                      val dirty = syncedItems[x.id] != mine
+                      val sv = server[x.id]
+                      if (dirty) out.add(x)                                   // 내가 바꾼 건 내 것 유지
+                      else if (sv != null) { if (sv != mine) changed = true; out.add(RItem.of(JSONObject(sv))) }
+                      else changed = true                                      // 다른 사람이 지움
+                  }
+                  for ((id, js) in server) if (!local.containsKey(id) && id !in pendingDel) { out.add(RItem.of(JSONObject(js))); changed = true }
+                  items.clear(); items.addAll(out)
+                  syncedItems.clear(); syncedItems.putAll(server)
+
+                  val sref = HashMap<String, String>()
+                  if (rfTxt.trim() != "null") {
+                      val o = JSONObject(rfTxt)
+                      for (k in o.keys()) { val j = o.optJSONObject(k) ?: continue; sref[k] = j.toString() }
+                  }
+                  val localRefs = HashMap<String, RRef>()
+                  for (r in refs.values) localRefs[Fb.safeKey(r.lot)] = r
+                  val pendingRefDel = syncedRefs.keys.filter { !localRefs.containsKey(it) }.toHashSet()
+                  val newRefs = LinkedHashMap<String, RRef>()
+                  for ((k, r) in localRefs) {
+                      val mine = r.toJson().toString()
+                      val sv = sref[k]
+                      if (syncedRefs[k] != mine) newRefs[r.lot] = r
+                      else if (sv != null) { val rr = RRef.of(JSONObject(sv)); newRefs[rr.lot] = rr; if (sv != mine) changed = true }
+                      else changed = true
+                  }
+                  for ((k, js) in sref) if (!localRefs.containsKey(k) && k !in pendingRefDel) { val rr = RRef.of(JSONObject(js)); newRefs[rr.lot] = rr; changed = true }
+                  refs.clear(); refs.putAll(newRefs)
+                  syncedRefs.clear(); syncedRefs.putAll(sref)
+                  return changed
+              }
+
+              /** 다른 사람이 바꾼 게 들어오면 지금 화면 새로 그리기 */
+              private fun refreshView() {
+                  when (screen) {
+                      "scan" -> fillScanList()
+                      "home", "stock", "bl", "out", "move", "ref", "place" -> redraw()
+                  }
+              }
+
+              /** 엑셀용 이력: 서버의 전체 이력 (실패하면 내 폰 기록) */
+              private fun fetchHist(done: (List<JSONObject>) -> Unit) {
+                  if (!Fb.enabled) { done(hist.toList()); return }
+                  Thread {
+                      val list = ArrayList<JSONObject>()
+                      var ok = false
+                      try {
+                          val t = Fb.get("hist")
+                          if (t.trim() != "null") { val o = JSONObject(t); for (k in o.keys()) o.optJSONObject(k)?.let { list.add(it) } }
+                          ok = true
+                      } catch (e: Exception) { }
+                      list.sortBy { it.optString("t") }
+                      runOnUiThread { done(if (ok) list else hist.toList()) }
+                  }.start()
+              }
+
           }
           TALLY_EOF
           mkdir -p "app/src/main/java/com/nakyung/a2dock"
@@ -2866,13 +3075,93 @@ jobs:
               }
           }
           TALLY_EOF
+          mkdir -p "app/src/main/java/com/nakyung/a2dock"
+          cat > 'app/src/main/java/com/nakyung/a2dock/Fb.kt' <<'TALLY_EOF'
+          package com.nakyung.a2dock
+
+          import org.json.JSONObject
+          import java.net.HttpURLConnection
+          import java.net.URL
+
+          /** Firebase Realtime Database (REST). 주소·키는 빌드할 때 GitHub Secrets 에서 들어옴 */
+          object Fb {
+              val enabled: Boolean get() = BuildInfo.FB_URL.startsWith("https://") && BuildInfo.FB_KEY.isNotBlank()
+
+              private fun url(path: String): String {
+                  val base = BuildInfo.FB_URL.trim().trimEnd('/')
+                  return "$base/$path.json?auth=${BuildInfo.FB_KEY.trim()}"
+              }
+
+              /** Firebase 키로 못 쓰는 글자 바꾸기 */
+              fun safeKey(s: String): String = s.replace(Regex("[.#$\\[\\]/]"), "_").ifBlank { "_" }
+
+              fun get(path: String): String {
+                  val c = URL(url(path)).openConnection() as HttpURLConnection
+                  c.connectTimeout = 15000; c.readTimeout = 40000
+                  val code = c.responseCode
+                  if (code != 200) throw Exception("Firebase HTTP $code")
+                  return c.inputStream.bufferedReader().use { it.readText() }
+              }
+
+              /** 여러 곳을 한 번에 바꾸기 (값이 JSONObject.NULL 이면 삭제) */
+              fun patchRoot(body: JSONObject) {
+                  val c = URL(url("")).openConnection() as HttpURLConnection
+                  c.requestMethod = "POST"
+                  c.setRequestProperty("X-HTTP-Method-Override", "PATCH")
+                  c.doOutput = true
+                  c.connectTimeout = 15000; c.readTimeout = 40000
+                  c.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                  c.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+                  val code = c.responseCode
+                  if (code != 200) {
+                      val err = try { c.errorStream?.bufferedReader()?.use { it.readText() } } catch (e: Exception) { null }
+                      throw Exception("Firebase HTTP $code ${err ?: ""}".trim())
+                  }
+                  c.inputStream.close()
+              }
+
+              /**
+               * path 가 바뀔 때마다 onChange (실시간 스트림). alive() 가 false 가 되면 멈춤.
+               */
+              fun listen(path: String, alive: () -> Boolean, onChange: () -> Unit) {
+                  Thread {
+                      while (alive()) {
+                          var c: HttpURLConnection? = null
+                          try {
+                              c = URL(url(path)).openConnection() as HttpURLConnection
+                              c.setRequestProperty("Accept", "text/event-stream")
+                              c.connectTimeout = 15000; c.readTimeout = 90000
+                              c.instanceFollowRedirects = true
+                              val r = c.inputStream.bufferedReader()
+                              var ev = ""
+                              while (alive()) {
+                                  val line = r.readLine() ?: break
+                                  if (line.startsWith("event:")) ev = line.substring(6).trim()
+                                  else if (line.startsWith("data:")) {
+                                      if (ev == "put" || ev == "patch") onChange()
+                                      if (ev == "cancel" || ev == "auth_revoked") break
+                                  }
+                              }
+                          } catch (e: Exception) {
+                          } finally {
+                              try { c?.disconnect() } catch (e: Exception) { }
+                          }
+                          if (alive()) try { Thread.sleep(3000) } catch (e: Exception) { }
+                      }
+                  }.start()
+              }
+          }
+          TALLY_EOF
           echo "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" | base64 -d > app/a2dock.jks
 
       - name: Build info
         working-directory: proj
+        env:
+          FB_URL: ${{ secrets.FIREBASE_URL }}
+          FB_KEY: ${{ secrets.FIREBASE_KEY }}
         run: |
-          printf 'package com.nakyung.a2dock\nobject BuildInfo {\n    const val REPO = "%s"\n    const val BUILD = %s\n}\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_NUMBER" > app/src/main/java/com/nakyung/a2dock/BuildInfo.kt
-          cat app/src/main/java/com/nakyung/a2dock/BuildInfo.kt
+          printf 'package com.nakyung.a2dock\nobject BuildInfo {\n    const val REPO = "%s"\n    const val BUILD = %s\n    const val FB_URL = "%s"\n    const val FB_KEY = "%s"\n}\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_NUMBER" "$FB_URL" "$FB_KEY" > app/src/main/java/com/nakyung/a2dock/BuildInfo.kt
+          if [ -z "$FB_URL" ]; then echo "::warning::FIREBASE_URL secret 없음 - 공유 꺼진 상태로 빌드"; fi
 
       - name: Build APK
         working-directory: proj
