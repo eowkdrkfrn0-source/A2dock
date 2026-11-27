@@ -116,6 +116,9 @@ jobs:
               <uses-permission android:name="android.permission.CAMERA" />
               <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
               <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+              <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
               <uses-feature android:name="android.hardware.camera" android:required="false" />
               <application
                   android:label="재고관리"
@@ -182,6 +185,12 @@ jobs:
                           <data android:mimeType="application/zip" />
                       </intent-filter>
                   </activity>
+                  <receiver android:name=".OutAlarm" android:exported="false" />
+                  <receiver android:name=".BootRecv" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.BOOT_COMPLETED" />
+                      </intent-filter>
+                  </receiver>
                   <provider
                       android:name="androidx.core.content.FileProvider"
                       android:authorities="com.nakyung.a2dock.files"
@@ -359,6 +368,8 @@ jobs:
                   onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
                       override fun handleOnBackPressed() { when (screen) { "splash" -> {}; "home" -> finish(); "main", "hist" -> showHome(); "planEdit" -> showPlans(); else -> showMain() } }
                   })
+                  if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                      notiPerm.launch(android.Manifest.permission.POST_NOTIFICATIONS)
                   val tab0 = intent?.getStringExtra("tab")
                   if (savedInstanceState == null && tab0 == null) {
                       // 시작 화면: JJ
@@ -373,12 +384,15 @@ jobs:
                   }
               }
 
+              private val notiPerm = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
+
               override fun onResume() {
                   super.onResume()
                   Gate.resume(this)
                   startDock()
                   if (screen == "home" || screen == "hist") refreshTab()
                   handler.removeCallbacks(autoTick); handler.postDelayed(autoTick, 3000)
+                  Notify.schedule(this)
               }
 
 
@@ -633,7 +647,7 @@ jobs:
               private fun slotBadge(p: OutPlan): String =
                   p.trips.filter { daysLeft(it.day) >= 0 }.groupBy { normDay(it.day) }.toList().sortedBy { dayKey(it.first) }.joinToString(" / ") { (d, ts) ->
                       val am = ts.filter { it.hour < 12 }.sumOf { it.cars }; val pm = ts.filter { it.hour >= 12 }.sumOf { it.cars }
-                      "$d ${relDay(daysLeft(d))} " + listOfNotNull(if (am > 0) "오전$am" else null, if (pm > 0) "오후$pm" else null).joinToString("·")
+                      listOfNotNull(if (am > 0) "오전${am}대" else null, if (pm > 0) "오후${pm}대" else null).joinToString(" ") + " · $d ${relDay(daysLeft(d))}"
                   }
 
               private fun blSame(a: String, b: String): Boolean {
@@ -964,8 +978,8 @@ jobs:
                           val sm = "🚚 " + slotBadge(pl)
                           if (s.lines >= 2) {
                               addView(label("${s.bl} · ${s.pallets}P", 13f, Color.WHITE, true).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
-                              addView(label(sm, 12f, Color.rgb(255, 225, 140), true).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
-                          } else addView(label("${s.bl.takeLast(8)} $sm", 11f, Color.rgb(255, 225, 140), true).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
+                              addView(label(sm, 12f, Color.rgb(255, 225, 140), true).apply { setPadding(0, 0, 0, 0); maxLines = if (s.lines >= 3) 3 else 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+                          } else addView(label("$sm  ${s.bl.takeLast(6)}", 11f, Color.rgb(255, 225, 140), true).apply { setPadding(0, 0, 0, 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
                       } else if (s.lines >= 2) {
                           addView(label(s.bl, 13f, Color.WHITE, true).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
                           addView(label("${s.lines}줄 · ${s.pallets}P" + (if (s.memo.isNotBlank()) " · ${s.memo}" else ""), 12f, Color.argb(230, 255, 255, 255)).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
