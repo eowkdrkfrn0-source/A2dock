@@ -2745,13 +2745,29 @@ jobs:
                   return t
               }
 
+              /** 재고 LOT도 같은 표기로 (예전에 목록에서 골라 넣은 "(BOX NO. 011)" 등) */
+              private fun normItems(): Boolean {
+                  var ch = false
+                  for (s in items) { val nk = normLot(s.lot); if (nk != s.lot && s.lot.isNotBlank()) { s.lot = nk; ch = true } }
+                  return ch
+              }
+
+              /** 랙에만 있는 실재고를 목록에 +재고로 넣기 */
+              private fun addPlus(s: RItem) {
+                  ask("+재고로 넣기", "${s.lot}\n${s.name}\n\n사무실 목록엔 없지만 실재고로 목록에 넣을까요?\n(엑셀을 다시 불러와도 남아요)", "넣기") {
+                      refs[s.lot] = RRef(s.lot, s.name, s.qty, s.bl, s.inDate, true)
+                      save(); toast("${s.lot} +재고로 넣었어요"); showRef()
+                  }
+              }
+
               private fun applyRefs(rows0: List<RRef>, gone0: Set<String> = emptySet()) {
-                  for (k in refs.keys.toList()) { val nk = normLot(k); if (nk != k) { val o = refs.remove(k)!!; if (!refs.containsKey(nk)) refs[nk] = RRef(nk, o.name, o.qty, o.bl, o.inDate) } }
+                  for (k in refs.keys.toList()) { val nk = normLot(k); if (nk != k) { val o = refs.remove(k)!!; if (!refs.containsKey(nk)) refs[nk] = RRef(nk, o.name, o.qty, o.bl, o.inDate, o.add) } }
+                  normItems()
                   val rows = rows0.map { if (normLot(it.lot) == it.lot) it else RRef(normLot(it.lot), it.name, it.qty, it.bl, it.inDate) }
                   val gone = gone0.map { normLot(it) }.toSet()
                   if (rows.isEmpty()) { toast("LOT를 못 찾았어요"); showRef(); return }
                   var removed = 0
-                  for (g in gone) if (refs.remove(g) != null) removed++
+                  for (g in gone) if (refs[g]?.add != true && refs.remove(g) != null) removed++
                   var n = 0
                   for (r in rows) {
                       val old = refs[r.lot]
@@ -2794,16 +2810,27 @@ jobs:
                   if (refs.isNotEmpty()) c.addView(btn("목록 비우기") { ask("목록 비우기", "불러온 재고 목록을 지울까요? (재고는 그대로)", "지우기") { refs.clear(); save(); showRef() } })
                   content.addView(c)
                   if (refs.isNotEmpty()) {
+                      if (normItems()) save()
                       val st = stock()
                       val stockLots = st.map { it.lot }.toHashSet()
                       val onlyList = refs.values.filter { it.lot !in stockLots }
                       val onlyRack = st.filter { !refs.containsKey(it.lot) }
                       content.addView(label("대조 결과", 16f, Color.WHITE, true).apply { setPadding(0, dp(8), 0, 0) })
                       content.addView(label("✓ 목록·랙 둘 다: ${st.size - onlyRack.size}개", 14f, GREEN))
+                      val plus = refs.values.filter { it.add }
+                      if (plus.isNotEmpty()) {
+                          content.addView(label("＋재고 (목록에 없지만 실재고): ${plus.size}개", 14f, Color.rgb(120, 190, 255), true))
+                          for (r in plus) content.addView(label("· ${r.lot}  ${r.name}  +재고  (눌러서 빼기)", 12f, Color.rgb(120, 190, 255)).apply {
+                              setOnClickListener { ask("+재고 빼기", "${r.lot} 를 목록에서 뺄까요?", "빼기") { refs.remove(r.lot); save(); showRef() } }
+                          })
+                      }
                       content.addView(label("목록에만 있음 (재고 남았는데 아직 안 찍음): ${onlyList.size}개", 14f, Color.rgb(243, 201, 138), true))
                       for (r in onlyList.take(300)) content.addView(label("· ${r.lot}  ${r.name}  ${shortDate(r.inDate)}  ${r.bl}", 12f, SUB))
                       content.addView(label("랙에만 있음 (목록에 없음): ${onlyRack.size}개", 14f, RED, true).apply { setPadding(0, dp(8), 0, 0) })
-                      for (s in onlyRack.take(300)) content.addView(label("· ${s.loc}  ${s.lot}  ${s.name}", 12f, SUB))
+                      if (onlyRack.isNotEmpty()) content.addView(label("실재고면 눌러서 +재고로 넣으세요", 12f, Color.rgb(243, 201, 138)))
+                      for (s in onlyRack.take(300)) content.addView(label("· ${s.loc}  ${s.lot}  ${s.name}   ＋", 13f, Color.WHITE).apply {
+                          setPadding(0, dp(6), 0, dp(6)); setOnClickListener { addPlus(s) }
+                      })
                   }
                   page(topBar("재고 목록·대조", "${refs.size}", BLUE), content, null)
               }
@@ -3269,10 +3296,11 @@ jobs:
           }
 
           /** 사무실 재고 목록 한 줄 */
-          class RRef(val lot: String, val name: String, val qty: String, val bl: String, val inDate: String) {
-              fun toJson(): JSONObject = JSONObject().apply { put("lot", lot); put("name", name); put("qty", qty); put("bl", bl); put("in", inDate) }
+          class RRef(val lot: String, val name: String, val qty: String, val bl: String, val inDate: String, val add: Boolean = false) {
+              /** add = 사무실 목록엔 없지만 실재고라 직접 넣은 것 (+재고) */
+              fun toJson(): JSONObject = JSONObject().apply { put("lot", lot); put("name", name); put("qty", qty); put("bl", bl); put("in", inDate); if (add) put("add", true) }
               companion object {
-                  fun of(o: JSONObject) = RRef(o.optString("lot"), o.optString("name"), o.optString("qty"), o.optString("bl"), o.optString("in"))
+                  fun of(o: JSONObject) = RRef(o.optString("lot"), o.optString("name"), o.optString("qty"), o.optString("bl"), o.optString("in"), o.optBoolean("add"))
               }
           }
 
