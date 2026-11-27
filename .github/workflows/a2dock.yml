@@ -2451,8 +2451,8 @@ jobs:
                   val b = curBatch
                   curBatch = ""; batchSeq = 0; lastPlacedLoc = ""; curId = 0L
                   save()
-                  toast("입고 $b 완료")
-                  showHome()
+                  toast("입고 $b 완료 · 다음 입고")
+                  startScan("in")   // 홈 대신 바로 다음 입고 찍기 화면
               }
 
               private fun addRecent(bl: String) {
