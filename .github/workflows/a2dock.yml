@@ -98,6 +98,7 @@ jobs:
               implementation("androidx.camera:camera-lifecycle:1.3.4")
               implementation("androidx.camera:camera-view:1.3.4")
               implementation("com.google.mlkit:text-recognition:16.0.1")
+              implementation("com.google.mlkit:text-recognition-korean:16.0.1")
               implementation("com.google.mlkit:barcode-scanning:17.2.0")
               implementation("com.tom-roush:pdfbox-android:2.0.27.0")
           }
@@ -298,6 +299,26 @@ jobs:
               var date: String = ""
           )
 
+          /** 출고 일정 한 건 (B/L 하나) */
+          class Trip(var day: String = "", var hour: Int = 9, var cars: Int = 1, var unload: String = "")
+          class OutPlan(
+              var id: Long = System.currentTimeMillis(),
+              var bl: String = "", var dest: String = "", var item: String = "", var qty: String = "",
+              var wt: String = "", var cbm: String = "", var note: String = "", var store: String = "",
+              val trips: MutableList<Trip> = mutableListOf()
+          ) {
+              fun json(): JSONObject = JSONObject().apply {
+                  put("i", id); put("b", bl); put("d", dest); put("it", item); put("q", qty); put("w", wt); put("c", cbm); put("n", note); put("s", store)
+                  put("tr", JSONArray(trips.map { JSONObject().put("day", it.day).put("h", it.hour).put("c", it.cars).put("u", it.unload) }))
+              }
+              companion object {
+                  fun of(o: JSONObject) = OutPlan(o.optLong("i"), o.optString("b"), o.optString("d"), o.optString("it"), o.optString("q"),
+                      o.optString("w"), o.optString("c"), o.optString("n"), o.optString("s")).also { p ->
+                      o.optJSONArray("tr")?.let { a -> for (k in 0 until a.length()) { val t = a.getJSONObject(k); p.trips.add(Trip(t.optString("day"), t.optInt("h", 9), t.optInt("c", 1), t.optString("u"))) } }
+                  }
+              }
+          }
+
           class MainActivity : ComponentActivity() {
 
               // ---------- 데이터 ----------
@@ -334,7 +355,7 @@ jobs:
                   window.navigationBarColor = BG
                   load()
                   onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-                      override fun handleOnBackPressed() { when (screen) { "splash" -> {}; "home" -> finish(); "main", "hist" -> showHome(); else -> showMain() } }
+                      override fun handleOnBackPressed() { when (screen) { "splash" -> {}; "home" -> finish(); "main", "hist" -> showHome(); "planEdit" -> showPlans(); else -> showMain() } }
                   })
                   val tab0 = intent?.getStringExtra("tab")
                   if (savedInstanceState == null && tab0 == null) {
@@ -476,6 +497,11 @@ jobs:
                       setPadding(dp(16), dp(12), dp(16), dp(12))
                   }
                   head.addView(label("한화오션 현황", 22f, Color.WHITE, true))
+                  plans.filter { planKey(it) >= todayKey() }.sortedBy { planKey(it) }.take(3).forEach { pl ->
+                      head.addView(label("🚚 " + planSummary(pl, true).joinToString(" / ") + "  ·  " + pl.bl.takeLast(8) + (if (pl.dest.isNotBlank()) " → ${pl.dest}" else ""), 13f, Color.rgb(255, 220, 150), true).apply {
+                          maxLines = 1; setOnClickListener { showPlans() }
+                      })
+                  }
                   head.addView(label("B/L ${bls.size}건 · ${bls.sumOf { it.second.pallets }}파레트 · 빈자리 ${gapL + gapR}줄", 13f, Color.argb(225, 255, 255, 255)))
                   if (Fb.enabled) head.addView(label(when {
                       dockErr.isNotEmpty() -> "⚠ 공유 실패: $dockErr"
@@ -538,6 +564,7 @@ jobs:
                   // 아래 버튼
                   root.addView(row(
                       btn("＋ 빈자리", Color.rgb(40, 80, 55)) { addGapDialog() },
+                      btn("📅 출고일정" + plans.count { planKey(it) >= todayKey() }.let { if (it > 0) " $it" else "" }, Color.rgb(234, 88, 12)) { showPlans() },
                       btn("↩ 되돌리기", Color.rgb(90, 70, 40)) { undo() }
                   ))
                   root.addView(row(
@@ -545,6 +572,253 @@ jobs:
                       btn("－ 출고", DANGER) { showOutbound(null) }.apply { textSize = 19f; minHeight = dp(58) }
                   ))
                   withTabs(root, "dock")
+              }
+
+              // ======================= 출고 일정 =======================
+              private val plans = mutableListOf<OutPlan>()
+              private var editPlan: OutPlan? = null
+
+              /** "12/1(화)" → 정렬용 키 (yyyyMMdd) */
+              private fun dayKey(day: String): Int {
+                  val m = Regex("(\\d{1,2})\\s*[/.]\\s*(\\d{1,2})").find(day) ?: return 99999999
+                  val mo = m.groupValues[1].toInt(); val d = m.groupValues[2].toInt()
+                  val cal = java.util.Calendar.getInstance()
+                  var y = cal.get(java.util.Calendar.YEAR)
+                  val cm = cal.get(java.util.Calendar.MONTH) + 1
+                  if (mo < cm - 6) y++ else if (mo > cm + 6) y--
+                  return y * 10000 + mo * 100 + d
+              }
+              private fun todayKey(): Int { val c = java.util.Calendar.getInstance(); return c.get(java.util.Calendar.YEAR) * 10000 + (c.get(java.util.Calendar.MONTH) + 1) * 100 + c.get(java.util.Calendar.DAY_OF_MONTH) }
+              private fun planKey(p: OutPlan) = p.trips.minOfOrNull { dayKey(it.day) } ?: 99999999
+              private fun shortDay(day: String) = Regex("\\d{1,2}\\s*[/.]\\s*\\d{1,2}(\\s*\\(.\\))?").find(day)?.value?.replace(" ", "") ?: day
+
+              /** "12/1(화) 오전 8대 · 오후 8대" 처럼 날짜별로 */
+              private fun planSummary(p: OutPlan, short: Boolean = false): List<String> =
+                  p.trips.groupBy { shortDay(it.day) }.toList().sortedBy { dayKey(it.first) }.map { (d, ts) ->
+                      val am = ts.filter { it.hour < 12 }.sumOf { it.cars }; val pm = ts.filter { it.hour >= 12 }.sumOf { it.cars }
+                      val dd = if (short) d.replace(Regex("\\(.\\)"), "") else d
+                      dd + " " + listOfNotNull(if (am > 0) "오전 ${am}대" else null, if (pm > 0) "오후 ${pm}대" else null).joinToString(if (short) "·" else " · ")
+                  }
+
+              private fun plansFor(bl: String): List<OutPlan> {
+                  val b = bl.uppercase().replace(" ", "")
+                  if (b.isEmpty()) return emptyList()
+                  return plans.filter { p -> val pb = p.bl.uppercase().replace(" ", ""); pb.isNotEmpty() && (pb == b || pb.contains(b) || b.contains(pb)) }
+                      .filter { planKey(it) >= todayKey() }.sortedBy { planKey(it) }
+              }
+
+              /** 도크에서 그 B/L 위치 */
+              private fun whereBl(bl: String): String {
+                  val b = bl.uppercase().replace(" ", "")
+                  if (b.isEmpty()) return ""
+                  for (side in listOf('L', 'R')) {
+                      val l = lane(side)
+                      val i = l.indexOfFirst { !it.gap && (it.bl == b || it.bl.contains(b) || (it.bl.isNotEmpty() && b.contains(it.bl))) }
+                      if (i >= 0) { val s = l[i]; return "${sideName(side)} 위에서 ${i + 1}번째 · ${s.lines}줄 · ${s.pallets}P" }
+                  }
+                  return ""
+              }
+
+              private val pickPlanImg = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { u ->
+                  if (u != null) readPlanImage(u)
+              }
+
+              private fun readPlanImage(u: Uri) {
+                  toast("글자 읽는 중…")
+                  try {
+                      val img = com.google.mlkit.vision.common.InputImage.fromFilePath(this, u)
+                      com.google.mlkit.vision.text.TextRecognition.getClient(com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions.Builder().build())
+                          .process(img)
+                          .addOnSuccessListener { t -> editPlan = parsePlan(t); showPlanEdit() }
+                          .addOnFailureListener { e -> toast("읽기 실패: ${e.message}") }
+                  } catch (e: Exception) { toast("사진을 열 수 없어요: ${e.message}") }
+              }
+
+              /** 메일 표 캡처 → 출고 일정 (머리글 칸 기준으로 칸 나누기) */
+              private fun parsePlan(t: com.google.mlkit.vision.text.Text): OutPlan {
+                  class W(val s: String, val l: Float, val r: Float, val cy: Float, val h: Float) { val cx get() = (l + r) / 2 }
+                  val ws = ArrayList<W>()
+                  for (b in t.textBlocks) for (ln in b.lines) for (e in ln.elements) {
+                      val bb = e.boundingBox ?: continue
+                      ws.add(W(e.text, bb.left.toFloat(), bb.right.toFloat(), bb.exactCenterY(), bb.height().toFloat()))
+                  }
+                  val p = OutPlan()
+                  fun keyOf(raw: String): String? {
+                      val s = raw.replace(" ", "").uppercase()
+                      return when {
+                          s.contains("상차") -> "load"
+                          s.contains("하차지") -> "dest"
+                          s.contains("하차") -> "unload"
+                          s.contains("차량") || s.contains("대수") -> "cars"
+                          s == "BL" || s == "B/L" || s.startsWith("BLNO") || s == "B/LNO" -> "bl"
+                          s.contains("품명") -> "item"
+                          s.contains("수량") -> "qty"
+                          s.contains("중량") -> "wt"
+                          s.contains("용적") -> "cbm"
+                          s.contains("비고") -> "note"
+                          s.contains("보관") -> "store"
+                          else -> null
+                      }
+                  }
+                  val heads = ws.mapNotNull { w -> keyOf(w.s)?.let { it to w } }
+                  val fullText = t.text
+                  val blRe = Regex("\\b[A-Z]{3,}[A-Z0-9]*\\d{4,}[A-Z0-9]*\\b")
+                  // 도크에 있는 B/L이 글자에 있으면 그게 우선
+                  val upAll = fullText.uppercase().replace(" ", "")
+                  val dockBl = (left + right).filter { !it.gap && it.bl.length >= 5 }.map { it.bl }.firstOrNull { upAll.contains(it) }
+
+                  if (heads.size >= 3) {
+                      val hy = heads.map { it.second.cy }.sorted()[heads.size / 2]
+                      val hh = heads.map { it.second.h }.average().toFloat()
+                      val cols = heads.filter { Math.abs(it.second.cy - hy) < hh * 2.5f }.groupBy { it.first }.mapValues { e -> e.value.minByOrNull { Math.abs(it.second.cy - hy) }!!.second.cx }
+                      val order = cols.entries.sortedBy { it.value }
+                      val below = ws.filter { it.cy > hy + hh * 0.8f && keyOf(it.s) == null }
+                      // 칸 나누기: 머리글 가운데 사이 중간선
+                      fun colOf(x: Float): String {
+                          var best = order.first().key; var bd = Float.MAX_VALUE
+                          for (o in order) { val d = Math.abs(o.value - x); if (d < bd) { bd = d; best = o.key } }
+                          return best
+                      }
+                      val cells = HashMap<String, MutableList<Pair<Float, String>>>()   // 칸 → (y, 글자)
+                      for ((k, list) in below.groupBy { colOf(it.cx) }) {
+                          val rows = ArrayList<MutableList<W>>()
+                          for (w in list.sortedBy { it.cy }) {
+                              val last = rows.lastOrNull()
+                              if (last != null && Math.abs(last.last().cy - w.cy) < hh * 0.7f) last.add(w) else rows.add(mutableListOf(w))
+                          }
+                          cells[k] = rows.map { r -> r.map { it.cy }.average().toFloat() to r.sortedBy { it.l }.joinToString(" ") { it.s } }.toMutableList()
+                      }
+                      fun first(k: String) = cells[k]?.firstOrNull()?.second ?: ""
+                      fun near(k: String, y: Float) = cells[k]?.minByOrNull { Math.abs(it.first - y) }?.second ?: ""
+                      p.bl = (dockBl ?: blRe.find(first("bl").uppercase().replace(" ", ""))?.value ?: first("bl")).uppercase().replace(" ", "")
+                      p.dest = first("dest"); p.item = first("item"); p.qty = first("qty"); p.wt = first("wt"); p.cbm = first("cbm")
+                      p.note = first("note"); p.store = first("store")
+                      for ((y, txt) in cells["load"] ?: mutableListOf()) {
+                          val day = Regex("\\d{1,2}\\s*/\\s*\\d{1,2}\\s*(\\([^)]{1,2}\\))?").find(txt)?.value?.replace(" ", "") ?: continue
+                          val hour = Regex("(\\d{1,2})\\s*시").find(txt)?.groupValues?.get(1)?.toIntOrNull()
+                              ?: Regex("(\\d{1,2}):\\d{2}").find(txt)?.groupValues?.get(1)?.toIntOrNull() ?: 9
+                          val cars = Regex("\\d{1,2}").find(near("cars", y))?.value?.toIntOrNull() ?: 1
+                          p.trips.add(Trip(day, hour, cars, near("unload", y)))
+                      }
+                  }
+                  if (p.bl.isEmpty()) p.bl = dockBl ?: blRe.find(fullText.uppercase())?.value ?: ""
+                  if (p.trips.isEmpty()) {   // 머리글을 못 찾았을 때: 날짜·시간을 차례로
+                      val ds = Regex("(\\d{1,2}/\\d{1,2})\\s*(\\([^)]{1,2}\\))?\\s*(\\d{1,2})\\s*시").findAll(fullText).toList()
+                      var i = 0
+                      while (i < ds.size) {
+                          val m = ds[i]
+                          p.trips.add(Trip(m.groupValues[1] + m.groupValues[2], m.groupValues[3].toIntOrNull() ?: 9, 1,
+                              ds.getOrNull(i + 1)?.value ?: ""))
+                          i += 2
+                      }
+                  }
+                  return p
+              }
+
+              private fun showPlans() {
+                  screen = "plans"
+                  val root = vbox()
+                  root.addView(topBar("출고 일정", Color.rgb(234, 88, 12)))
+                  root.addView(row(
+                      btn("📷 캡처로 등록", Color.rgb(234, 88, 12)) { pickPlanImg.launch("image/*") }.apply { textSize = 17f; minHeight = dp(56) },
+                      btn("✎ 직접 등록", GREY_BTN) { editPlan = OutPlan().also { it.trips.add(Trip()) }; showPlanEdit() }.apply { textSize = 17f; minHeight = dp(56) }
+                  ))
+                  root.addView(label("메일 표를 캡처해서 넣으면 날짜·대수·B/L을 읽어요 (저장 전에 고칠 수 있어요)", 12f, SUB))
+                  val tk = todayKey()
+                  val list = plans.sortedBy { planKey(it) }
+                  val now = list.filter { planKey(it) >= tk }; val past = list.filter { planKey(it) < tk }
+                  if (list.isEmpty()) root.addView(label("등록된 출고 일정이 없어요", 15f, SUB).apply { gravity = Gravity.CENTER; setPadding(0, dp(30), 0, 0) })
+                  fun planCard(p: OutPlan, old: Boolean) {
+                      val c = card()
+                      c.background = round(if (old) Color.rgb(24, 27, 33) else CARD, 16, if (old) null else Color.rgb(234, 88, 12))
+                      for (sline in planSummary(p)) c.addView(label("🚚 $sline", 20f, if (old) SUB else Color.WHITE, true))
+                      for (tr in p.trips.sortedWith(compareBy({ dayKey(it.day) }, { it.hour })))
+                          c.addView(label("  · ${shortDay(tr.day)} ${tr.hour}시 상차 ${tr.cars}대" + (if (tr.unload.isNotBlank()) " → 하차 ${tr.unload}" else ""), 13f, SUB))
+                      c.addView(label("B/L  ${p.bl.ifBlank { "-" }}", 17f, GOLD, true).apply { setPadding(0, dp(6), 0, 0) })
+                      val w = whereBl(p.bl)
+                      c.addView(label(if (w.isNotEmpty()) "📍 $w" else "📍 한화오션 도크에 없음", 14f, if (w.isNotEmpty()) GREEN else Color.rgb(255, 140, 120), true))
+                      val info = listOfNotNull(
+                          p.dest.takeIf { it.isNotBlank() }?.let { "하차지 $it" }, p.item.takeIf { it.isNotBlank() },
+                          p.qty.takeIf { it.isNotBlank() }?.let { "수량 $it" }, p.wt.takeIf { it.isNotBlank() }?.let { "${it}kg" },
+                          p.cbm.takeIf { it.isNotBlank() }?.let { "${it}㎥" }, p.note.takeIf { it.isNotBlank() }, p.store.takeIf { it.isNotBlank() }?.let { "보관 $it" })
+                      if (info.isNotEmpty()) c.addView(label(info.joinToString(" · "), 13f, SUB))
+                      c.addView(row(
+                          btn("수정") { editPlan = p; showPlanEdit() },
+                          btn("출고 완료", Color.rgb(30, 110, 70)) {
+                              AlertDialog.Builder(this).setMessage("${p.bl} 출고 일정을 끝낼까요?\n(일정만 지워져요. 배치도는 출고 버튼으로 처리하세요)")
+                                  .setPositiveButton("끝내기") { _, _ -> plans.remove(p); save(); showPlans() }.setNegativeButton("취소", null).show()
+                          },
+                          btn("삭제", DANGER) {
+                              AlertDialog.Builder(this).setMessage("${p.bl} 출고 일정을 지울까요?")
+                                  .setPositiveButton("삭제") { _, _ -> plans.remove(p); save(); showPlans() }.setNegativeButton("취소", null).show()
+                          }
+                      ))
+                      root.addView(c)
+                  }
+                  for (p in now) planCard(p, false)
+                  if (past.isNotEmpty()) { root.addView(label("지난 일정", 13f, SUB, true).apply { setPadding(0, dp(14), 0, 0) }); for (p in past.asReversed()) planCard(p, true) }
+                  page(root)
+              }
+
+              private fun showPlanEdit() {
+                  val p = editPlan ?: return
+                  screen = "planEdit"
+                  val root = vbox()
+                  root.addView(topBar(if (plans.contains(p)) "출고 일정 수정" else "출고 일정 확인", Color.rgb(234, 88, 12)))
+                  val c = card()
+                  fun lb(t: String) = label(t, 13f, SUB)
+                  c.addView(lb("B/L"))
+                  val eBl = field("B/L 번호", p.bl); c.addView(eBl)
+                  val bw = label("", 13f, GREEN, true); c.addView(bw)
+                  fun upd() { val w = whereBl(eBl.text.toString().trim().uppercase()); bw.text = if (w.isNotEmpty()) "📍 $w" else "도크에 없는 B/L"; bw.setTextColor(if (w.isNotEmpty()) GREEN else Color.rgb(255, 140, 120)) }
+                  eBl.addTextChangedListener(watcher { upd() }); upd()
+                  c.addView(lb("하차지")); val eDest = field("예: 통영 안정공단", p.dest).apply { inputType = InputType.TYPE_CLASS_TEXT }; c.addView(eDest)
+                  c.addView(lb("품명 · 수량 · 중량(kg) · 용적"))
+                  val eItem = field("품명", p.item).apply { inputType = InputType.TYPE_CLASS_TEXT }
+                  val eQty = field("수량", p.qty); val eWt = field("중량", p.wt); val eCbm = field("용적", p.cbm)
+                  c.addView(eItem); c.addView(row(eQty, eWt, eCbm))
+                  c.addView(lb("비고 · 보관 장소"))
+                  val eNote = field("비고", p.note).apply { inputType = InputType.TYPE_CLASS_TEXT }; val eStore = field("보관 장소", p.store).apply { inputType = InputType.TYPE_CLASS_TEXT }
+                  c.addView(row(eNote, eStore))
+                  root.addView(c)
+
+                  val tc = card()
+                  tc.addView(label("상차 일정 (오전·오후는 시간으로 자동)", 14f, Color.WHITE, true))
+                  val tripBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  tc.addView(tripBox)
+                  class TR(val day: EditText, val hour: EditText, val cars: EditText, val un: EditText)
+                  val trs = ArrayList<TR>()
+                  fun addTripRow(t: Trip) {
+                      val rowBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = round(Color.rgb(36, 41, 52), 10); setPadding(dp(8), dp(6), dp(8), dp(6)) }
+                      val d = field("12/1(화)", t.day).apply { inputType = InputType.TYPE_CLASS_TEXT }
+                      val h = field("시", t.hour.toString(), numeric = true); val n = field("대수", t.cars.toString(), numeric = true)
+                      val u = field("하차 일시 (선택)", t.unload).apply { inputType = InputType.TYPE_CLASS_TEXT; textSize = 14f }
+                      val tr = TR(d, h, n, u)
+                      rowBox.addView(row(d, h, n))
+                      rowBox.addView(row(u, btn("빼기", Color.rgb(70, 40, 46)) { trs.remove(tr); tripBox.removeView(rowBox) }))
+                      trs.add(tr)
+                      tripBox.addView(rowBox, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(4), 0, dp(4)) })
+                  }
+                  p.trips.forEach { addTripRow(it) }
+                  if (p.trips.isEmpty()) addTripRow(Trip())
+                  tc.addView(btn("＋ 상차 시간 추가") { addTripRow(Trip(trs.lastOrNull()?.day?.text?.toString() ?: "", 13, 1)) })
+                  tc.addView(label("시간 칸: 09 → 오전, 13·15 → 오후", 11f, SUB))
+                  root.addView(tc)
+
+                  root.addView(btn("저장", Color.rgb(234, 88, 12)) {
+                      val trips = trs.mapNotNull { r ->
+                          val d = r.day.text.toString().trim()
+                          if (d.isEmpty()) null else Trip(d, r.hour.text.toString().toIntOrNull()?.coerceIn(0, 23) ?: 9, r.cars.text.toString().toIntOrNull() ?: 1, r.un.text.toString().trim())
+                      }
+                      if (trips.isEmpty()) { toast("상차 날짜를 넣어주세요 (예: 12/1)"); return@btn }
+                      p.bl = eBl.text.toString().trim().uppercase().replace(" ", ""); p.dest = eDest.text.toString().trim(); p.item = eItem.text.toString().trim()
+                      p.qty = eQty.text.toString().trim(); p.wt = eWt.text.toString().trim(); p.cbm = eCbm.text.toString().trim()
+                      p.note = eNote.text.toString().trim(); p.store = eStore.text.toString().trim()
+                      p.trips.clear(); p.trips.addAll(trips)
+                      if (!plans.contains(p)) plans.add(p)
+                      save(); toast("출고 일정 저장 · " + planSummary(p).joinToString(" / ")); editPlan = null; showPlans()
+                  }.apply { textSize = 19f; minHeight = dp(60) })
+                  page(root)
               }
 
               /** 입고·출고 화면의 작은 도크 지도 (좌측 | 통로 | 우측) */
@@ -614,7 +888,15 @@ jobs:
                       background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(lt, c0)).apply {
                           cornerRadius = dp(10).toFloat(); setStroke(dp(1), Color.argb(70, 255, 255, 255))
                       }
-                      if (s.lines >= 2) {
+                      val pl = plansFor(s.bl).firstOrNull()
+                      if (pl != null) {
+                          foreground = round(Color.TRANSPARENT, 10, Color.rgb(255, 170, 60))
+                          val sm = "🚚 " + planSummary(pl, true).joinToString(" / ")
+                          if (s.lines >= 2) {
+                              addView(label("${s.bl} · ${s.pallets}P", 13f, Color.WHITE, true).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
+                              addView(label(sm, 12f, Color.rgb(255, 225, 140), true).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
+                          } else addView(label("${s.bl.takeLast(8)} $sm", 11f, Color.rgb(255, 225, 140), true).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
+                      } else if (s.lines >= 2) {
                           addView(label(s.bl, 13f, Color.WHITE, true).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
                           addView(label("${s.lines}줄 · ${s.pallets}P" + (if (s.memo.isNotBlank()) " · ${s.memo}" else ""), 12f, Color.argb(230, 255, 255, 255)).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
                       } else {
@@ -1003,11 +1285,15 @@ jobs:
                       label("◀ 좌측  ${useL}줄 · 빈 ${gapL}", 13f, SUB).apply { gravity = Gravity.CENTER },
                       label("우측 ▶  ${useR}줄 · 빈 ${gapR}", 13f, SUB).apply { gravity = Gravity.CENTER }
                   ))
+                  val up = plans.filter { planKey(it) >= todayKey() }.sortedBy { planKey(it) }
+                  for (pl in up.take(3)) dc.addView(label("🚚 " + planSummary(pl).joinToString(" / ") + "\n    ${pl.bl}" + (if (pl.dest.isNotBlank()) " → ${pl.dest}" else "") +
+                      whereBl(pl.bl).let { w -> if (w.isNotEmpty()) "  ($w)" else "  (도크에 없음)" }, 13f, Color.rgb(255, 210, 140), true).apply { setOnClickListener { showPlans() } })
                   dc.addView(row(
                       btn("＋ 입고", TEAL) { showInbound(null, null) },
                       btn("－ 출고", DANGER) { showOutbound(null) },
                       btn("배치도 ›", PRIMARY) { showMain() }
                   ))
+                  dc.addView(btn("📅 출고 일정" + if (up.isNotEmpty()) " (${up.size})" else "", Color.rgb(234, 88, 12)) { showPlans() })
                   root.addView(dc)
 
                   // 랙 재고
@@ -1169,6 +1455,7 @@ jobs:
                   put("L", JSONArray(left.map { slotJson(it) }))
                   put("R", JSONArray(right.map { slotJson(it) }))
                   put("H", JSONArray(history))
+                  put("P", JSONArray(plans.map { it.json() }))
               }
 
               private fun applyJson(o: JSONObject, withHistory: Boolean) {
@@ -1180,6 +1467,7 @@ jobs:
                       }
                   }
                   read(o.optJSONArray("L"), left); read(o.optJSONArray("R"), right)
+                  o.optJSONArray("P")?.let { a -> plans.clear(); for (i in 0 until a.length()) plans.add(OutPlan.of(a.getJSONObject(i))) }
                   if (withHistory) {
                       history.clear()
                       val h = o.optJSONArray("H")
