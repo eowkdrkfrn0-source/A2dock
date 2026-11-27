@@ -2022,9 +2022,12 @@ jobs:
                       layoutParams = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(3), 0, dp(3)) }
                       if (n > 0) addView(numBadge(n, mkColor(it.mk), 40))
                       val t = vbox().apply { setPadding(dp(10), 0, 0, 0) }
-                      t.addView(label(it.name.ifBlank { it.lot } + (if (it.qty.isNotBlank()) " · ${it.qty}" else ""), 16f, Color.WHITE, true))
-                      val sub = listOf(it.mk, it.lot, it.size).filter { s -> s.isNotBlank() }.joinToString(" · ")
-                      t.addView(label(sub + (if (it.bl.isNotBlank()) "\nB/L ${it.bl}" else ""), 12f, SUB))
+                      // LOT 크게, 품명은 아래 작게
+                      t.addView(label(it.lot.ifBlank { it.name }, 19f, Color.WHITE, true).apply { isSingleLine = true; ellipsize = android.text.TextUtils.TruncateAt.START })
+                      val nm = listOf(it.name.takeIf { n2 -> n2 != it.lot } ?: "", it.qty).filter { s -> s.isNotBlank() }.joinToString(" · ")
+                      if (nm.isNotBlank()) t.addView(label(nm, 13f, Color.rgb(200, 206, 218)).apply { maxLines = 2 })
+                      val sub = listOf(it.mk, it.size).filter { s -> s.isNotBlank() }.joinToString(" · ") + (if (it.bl.isNotBlank()) "  B/L ${it.bl}" else "")
+                      if (sub.isNotBlank()) t.addView(label(sub.trim(), 12f, SUB))
                       addView(t, LinearLayout.LayoutParams(0, -2, 1f))
                       if (right.isNotEmpty()) addView(label(right, rightSize, rightColor, true))
                       if (onClick != null) setOnClickListener { onClick() }
