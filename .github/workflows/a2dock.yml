@@ -1809,38 +1809,72 @@ jobs:
                   }
 
               /** A랙/B랙/평치 + 휠(랙번호·단). onChange 는 값이 바뀔 때 */
+              /** 위치 고르기: A/B/평치 + 랙 번호 버튼 + 단 버튼 (누르면 바로 반영) */
               private fun locPicker(onZone: () -> Unit, onChange: () -> Unit): LinearLayout {
                   if (pickZone != "F") pickNum = pickNum.coerceIn(minRack(pickZone), maxRack(pickZone))
                   val box = vbox()
-                  val seg = LinearLayout(this).apply {
-                      orientation = LinearLayout.HORIZONTAL; background = round(CARD, 12); setPadding(dp(4), dp(4), dp(4), dp(4))
+                  fun keyBtn(t: String, onClick: () -> Unit) = Button(this).apply {
+                      text = t; textSize = 19f; isAllCaps = false; setTypeface(typeface, Typeface.BOLD)
+                      stateListAnimator = null; minWidth = 0; minimumWidth = 0; minHeight = 0; minimumHeight = 0
+                      setPadding(0, 0, 0, 0)
+                      setOnClickListener { onClick() }
                   }
-                  for ((z, name) in listOf("A" to "A랙", "B" to "B랙", "F" to "평치")) {
-                      val on = pickZone == z
-                      seg.addView(Button(this).apply {
-                          text = name; textSize = 18f; isAllCaps = false; setTypeface(typeface, Typeface.BOLD)
-                          setTextColor(if (on) Color.WHITE else SUB); stateListAnimator = null
-                          background = round(if (on) (if (z == "F") ORANGE else BLUE) else CARD, 9)
-                          setOnClickListener {
-                              if (pickZone != z) { pickZone = z; if (z != "F") pickNum = pickNum.coerceIn(minRack(z), maxRack(z)); onZone() }
+                  fun build() {
+                      box.removeAllViews()
+                      val seg = LinearLayout(this).apply {
+                          orientation = LinearLayout.HORIZONTAL; background = round(CARD, 12); setPadding(dp(4), dp(4), dp(4), dp(4))
+                      }
+                      for ((z, name) in listOf("A" to "A랙", "B" to "B랙", "F" to "평치")) {
+                          val on = pickZone == z
+                          seg.addView(Button(this).apply {
+                              text = name; textSize = 18f; isAllCaps = false; setTypeface(typeface, Typeface.BOLD)
+                              setTextColor(if (on) Color.WHITE else SUB); stateListAnimator = null
+                              background = round(if (on) (if (z == "F") ORANGE else BLUE) else CARD, 9)
+                              setOnClickListener {
+                                  if (pickZone != z) {
+                                      pickZone = z
+                                      if (z != "F") pickNum = pickNum.coerceIn(minRack(z), maxRack(z))
+                                      build(); onChange()
+                                  }
+                              }
+                          }, LinearLayout.LayoutParams(0, dp(50), 1f).apply { setMargins(dp(2), 0, dp(2), 0) })
+                      }
+                      box.addView(seg)
+                      val cur = label(pickLoc(), 26f, Color.WHITE, true).apply { gravity = Gravity.CENTER; setPadding(0, dp(6), 0, dp(2)) }
+                      box.addView(cur)
+                      if (pickZone == "F") return
+                      val numBtns = ArrayList<Pair<Int, Button>>()
+                      val levBtns = ArrayList<Pair<Int, Button>>()
+                      val off = Color.rgb(40, 45, 56)
+                      fun paint() {
+                          for ((n, b) in numBtns) { val on = n == pickNum; b.background = round(if (on) BLUE else off, 9); b.setTextColor(if (on) Color.WHITE else Color.rgb(205, 210, 222)) }
+                          for ((n, b) in levBtns) { val on = n == pickLev; b.background = round(if (on) TEAL else off, 9); b.setTextColor(if (on) Color.WHITE else Color.rgb(205, 210, 222)) }
+                          cur.text = pickLoc()
+                      }
+                      val grid = vbox().apply { background = round(CARD, 16); setPadding(dp(6), dp(6), dp(6), dp(8)) }
+                      grid.addView(label("${pickZone}랙 번호", 12f, SUB).apply { setPadding(dp(4), 0, 0, dp(2)) })
+                      for (chunk in (minRack(pickZone)..maxRack(pickZone)).toList().chunked(6)) {
+                          val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                          for (n in chunk) {
+                              val b = keyBtn("$n") { pickNum = n; paint(); onChange() }
+                              numBtns.add(n to b)
+                              r.addView(b, LinearLayout.LayoutParams(0, dp(48), 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
                           }
-                      }, LinearLayout.LayoutParams(0, dp(50), 1f).apply { setMargins(dp(2), 0, dp(2), 0) })
-                  }
-                  box.addView(seg)
-                  if (pickZone != "F") {
-                      val wheels = LinearLayout(this).apply {
-                          orientation = LinearLayout.HORIZONTAL; background = round(CARD, 16); setPadding(dp(10), dp(6), dp(10), dp(6))
-                          gravity = Gravity.CENTER
+                          repeat(6 - chunk.size) { r.addView(View(this), LinearLayout.LayoutParams(0, dp(48), 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) }) }
+                          grid.addView(r)
                       }
-                      fun col(t: String, p: NumberPicker): LinearLayout = vbox().apply {
-                          gravity = Gravity.CENTER_HORIZONTAL
-                          addView(label(t, 12f, SUB).apply { gravity = Gravity.CENTER })
-                          addView(p, LinearLayout.LayoutParams(-2, dp(150)))
+                      grid.addView(label("단", 12f, SUB).apply { setPadding(dp(4), dp(8), 0, dp(2)) })
+                      val lr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                      for (n in 1..5) {
+                          val b = keyBtn("${n}단") { pickLev = n; paint(); onChange() }
+                          levBtns.add(n to b)
+                          lr.addView(b, LinearLayout.LayoutParams(0, dp(52), 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
                       }
-                      wheels.addView(col("${pickZone}랙 번호", picker(maxRack(pickZone), pickNum, minRack(pickZone)) { pickNum = it; onChange() }), LinearLayout.LayoutParams(0, -2, 1f))
-                      wheels.addView(col("단", picker(5, pickLev) { pickLev = it; onChange() }), LinearLayout.LayoutParams(0, -2, 1f))
-                      box.addView(wheels, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+                      grid.addView(lr)
+                      box.addView(grid, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+                      paint()
                   }
+                  build()
                   return box
               }
 
@@ -2351,26 +2385,30 @@ jobs:
                           setOnClickListener { dateDialog(cur.inDate) { d -> cur.inDate = d; save(); showPlace() } }
                       })
                       val info = label("", 13f, SUB).apply { gravity = Gravity.CENTER }
-                      fun upd() { val n = at(pickLoc()).size; info.text = "${pickLoc()} 현재 ${n}개" }
-                      content.addView(locPicker({ showPlace() }, { upd() }))
-                      upd()
-                      content.addView(info)
                       val nextN = q.indexOf(cur).let { i -> q.getOrNull(i + 1) }
-                      content.addView(big(btn("저장 · ${pickLoc()}" + if (nextN != null) "  → 다음 ${nextN.seq}" else "", TEAL) {
-                          place(cur, pickLoc())
-                      }, 64, 18f))
+                      var saveB: Button? = null; var allB: Button? = null
+                      fun upd() {
+                          val n = at(pickLoc()).size; info.text = "${pickLoc()} 현재 ${n}개"
+                          saveB?.text = "저장 · ${pickLoc()}" + if (nextN != null) "  → 다음 ${nextN.seq}" else ""
+                          allB?.text = "남은 ${q.size}개 전부 ${pickLoc()}에"
+                      }
+                      content.addView(locPicker({ showPlace() }, { upd() }))
+                      content.addView(info)
+                      saveB = big(btn("", TEAL) { place(cur, pickLoc()) }, 64, 18f)
+                      content.addView(saveB)
                       if (lastPlacedLoc.isNotEmpty()) {
                           content.addView(big(btn("${cur.seq}도 같은 칸 ($lastPlacedLoc)", Color.rgb(45, 70, 110)) {
                               place(cur, lastPlacedLoc)
                           }, 58, 17f))
                       }
-                      if (q.size > 1) content.addView(btn("남은 ${q.size}개 전부 ${pickLoc()}에", GREY) {
+                      if (q.size > 1) content.addView(btn("", GREY) {
                           ask("한 번에 적치", "남은 ${q.size}개를 전부 ${pickLoc()}에 넣을까요?", "넣기") {
                               val loc = pickLoc()
                               for (x in q) placeSilent(x, loc)
                               lastPlacedLoc = loc; save(); buzz(150); showPlace()
                           }
-                      })
+                      }.also { allB = it })
+                      upd()
                       content.addView(label("대기열 (눌러서 순서 바꾸기)", 13f, SUB).apply { setPadding(0, dp(10), 0, 0) })
                       for (x in q) {
                           val on = x.id == cur.id
@@ -2622,20 +2660,27 @@ jobs:
                       content.addView(c)
                       content.addView(label("▼ 어디로", 15f, PURPLE, true).apply { gravity = Gravity.CENTER; setPadding(0, dp(8), 0, dp(4)) })
                       val info = label("", 13f, SUB).apply { gravity = Gravity.CENTER }
-                      fun upd() { info.text = "${pickLoc()} 현재 ${at(pickLoc()).size}개" }
-                      content.addView(locPicker({ showMove() }, { upd() }))
-                      upd(); content.addView(info)
                       val nextN = q.indexOf(cur).let { i -> q.getOrNull(i + 1) }
-                      content.addView(big(btn("저장 · ${pickLoc()}" + if (nextN != null) "  → 다음" else "", PURPLE) { moveOne(cur, pickLoc()) }, 64, 18f))
+                      var saveB: Button? = null; var allB: Button? = null
+                      fun upd() {
+                          info.text = "${pickLoc()} 현재 ${at(pickLoc()).size}개"
+                          saveB?.text = "저장 · ${pickLoc()}" + if (nextN != null) "  → 다음" else ""
+                          allB?.text = "남은 ${q.size}개 전부 ${pickLoc()}에"
+                      }
+                      content.addView(locPicker({ showMove() }, { upd() }))
+                      content.addView(info)
+                      saveB = big(btn("", PURPLE) { moveOne(cur, pickLoc()) }, 64, 18f)
+                      content.addView(saveB)
                       if (lastMoveLoc.isNotEmpty() && lastMoveLoc != cur.loc)
                           content.addView(big(btn("이것도 같은 칸 ($lastMoveLoc)", Color.rgb(45, 70, 110)) { moveOne(cur, lastMoveLoc) }, 58, 17f))
-                      if (q.size > 1) content.addView(btn("남은 ${q.size}개 전부 ${pickLoc()}에", GREY) {
+                      if (q.size > 1) content.addView(btn("", GREY) {
                           ask("한 번에 이동", "남은 ${q.size}개를 전부 ${pickLoc()}로 옮길까요?", "옮기기") {
                               val to = pickLoc()
                               for (x in q) moveSilent(x, to)
                               lastMoveLoc = to; save(); buzz(150); showMove()
                           }
-                      })
+                      }.also { allB = it })
+                      upd()
                       content.addView(btn("이건 안 옮김 (대기열에서 빼기)", Color.rgb(70, 40, 46)) { moveSel.remove(cur.id); moveCur = 0L; showMove() }.apply { textSize = 14f; minHeight = dp(42) })
                       content.addView(label("대기열 ${q.size}개 (눌러서 순서 바꾸기)", 13f, SUB).apply { setPadding(0, dp(10), 0, 0) })
                       for ((i, x) in q.withIndex()) {
