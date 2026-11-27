@@ -2746,6 +2746,9 @@ jobs:
               }
 
               /** 재고 LOT도 같은 표기로 (예전에 목록에서 골라 넣은 "(BOX NO. 011)" 등) */
+              /** 출고 끝난 줄 정보 (실재고로 남아 있으면 B/L 채우기용) */
+              private val goneInfo = HashMap<String, RRef>()
+
               private fun normItems(): Boolean {
                   var ch = false
                   for (s in items) { val nk = normLot(s.lot); if (nk != s.lot && s.lot.isNotBlank()) { s.lot = nk; ch = true } }
@@ -2767,6 +2770,7 @@ jobs:
                   val gone = gone0.map { normLot(it) }.toSet()
                   if (rows.isEmpty()) { toast("LOT를 못 찾았어요"); showRef(); return }
                   var removed = 0
+                  for (g in gone) refs[g]?.let { o -> val gi = goneInfo[g]; if (o.add && o.bl.isBlank() && gi != null) refs[g] = RRef(g, o.name.ifBlank { gi.name }, o.qty, gi.bl, o.inDate.ifBlank { gi.inDate }, true) }
                   for (g in gone) if (refs[g]?.add != true && refs.remove(g) != null) removed++
                   var n = 0
                   for (r in rows) {
@@ -2778,6 +2782,7 @@ jobs:
                   }
                   val filled = fillFromRefs()
                   save()
+                  goneInfo.clear()
                   toast("재고 남은 ${n}줄 읽음" + (if (gone.isNotEmpty()) " · 출고 끝난 ${gone.size}줄 뺌" else "") + if (filled > 0) " · 재고 ${filled}개 B/L·입고일 채움" else "")
                   showRef()
               }
@@ -2786,7 +2791,7 @@ jobs:
               private fun fillFromRefs(): Int {
                   var n = 0
                   for (s in items) {
-                      val r = refs[s.lot] ?: continue
+                      val r = refs[s.lot] ?: goneInfo[s.lot]?.takeIf { s.bl.isBlank() } ?: continue
                       var ch = false
                       if (s.bl.isBlank() && r.bl.isNotBlank()) { s.bl = r.bl; ch = true }
                       if (s.name.isBlank() || s.name.startsWith("P4") || (s.name != r.name && s.name.startsWith(r.name))) if (r.name.isNotBlank()) { s.name = r.name; ch = true }
@@ -2810,7 +2815,7 @@ jobs:
                   if (refs.isNotEmpty()) c.addView(btn("목록 비우기") { ask("목록 비우기", "불러온 재고 목록을 지울까요? (재고는 그대로)", "지우기") { refs.clear(); save(); showRef() } })
                   content.addView(c)
                   if (refs.isNotEmpty()) {
-                      if (normItems()) save()
+                      if (normItems() or (fillFromRefs() > 0)) save()
                       val st = stock()
                       val stockLots = st.map { it.lot }.toHashSet()
                       val onlyList = refs.values.filter { it.lot !in stockLots }
@@ -2859,7 +2864,12 @@ jobs:
                           val lot = (r[cLot] ?: "").trim().uppercase()
                           if (lot.length < 4 || lot.contains("LOT")) continue
                           val left = cStock?.let { r[it] }?.trim()?.toDoubleOrNull()
-                          if (left != null && left <= 0.0) { gone.add(lot); continue }
+                          if (left != null && left <= 0.0) {
+                              gone.add(lot)
+                              val gb = (cBl?.let { r[it] } ?: "").uppercase()
+                              if (gb.isNotBlank()) goneInfo[normLot(lot)] = RRef(normLot(lot), cName?.let { r[it] } ?: "", "", gb, xlDate(cDate?.let { r[it] } ?: ""))
+                              continue
+                          }
                           out.add(RRef(lot, cName?.let { r[it] } ?: "", cM?.let { r[it] }?.let { if (it.isNotBlank()) "$it M" else "" } ?: "",
                               (cBl?.let { r[it] } ?: "").uppercase(), xlDate(cDate?.let { r[it] } ?: "")))
                       }
