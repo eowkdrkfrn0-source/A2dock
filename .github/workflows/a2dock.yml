@@ -1875,7 +1875,7 @@ jobs:
                   }
                   content.addView(row(
                       big(btn("－ 출고 (캡처)", RED) { showOut() }, 60, 17f),
-                      big(btn("⇄ 재고 이동", PURPLE) { moveSel.clear(); showMove() }, 60, 17f)
+                      big(btn("⇄ 재고 이동", PURPLE) { moveSel.clear(); movedDone.clear(); lastMoveLoc = ""; moveCur = 0L; showMove() }, 60, 17f)
                   ))
                   content.addView(big(btn("▦ 총재고 · 랙별 보기", BLUE) { stockRack = 0; showStock() }, 60, 18f))
                   content.addView(row(
@@ -2586,32 +2586,98 @@ jobs:
               }
 
               // ======================= 재고 이동 =======================
+              private var moveCur = 0L
+              private var lastMoveLoc = ""
+              private val movedDone = ArrayList<Pair<Long, String>>()   // 이번에 옮긴 것 (id, 원래 위치)
+
+              /** 재고 이동: 적치처럼 대기열 하나씩, 칸마다 따로 */
               private fun showMove() {
                   screen = "move"
-                  val sel = items.filter { it.id in moveSel && it.loc.isNotEmpty() }
+                  val q = items.filter { it.id in moveSel && it.loc.isNotEmpty() }
                   val content = vbox()
                   content.addView(row(
                       big(btn("라벨 찍기", BLUE) { startScan("move") }, 56, 16f),
                       big(btn("칸에서 고르기", GREY) { pickFromCell() }, 56, 16f)
                   ))
-                  content.addView(label("옮길 것 · ${sel.size}개", 14f, SUB, true))
-                  for (it in sel) content.addView(itemRow(it, "지금 ${it.loc}  ✕", SUB, Color.rgb(40, 34, 70), PURPLE, n = 0) { moveSel.remove(it.id); showMove() })
-                  if (sel.isEmpty()) content.addView(label("라벨을 찍거나 칸에서 골라주세요", 13f, DIM).apply { gravity = Gravity.CENTER; setPadding(0, dp(12), 0, dp(12)) })
-                  content.addView(label("▼ 어디로", 15f, PURPLE, true).apply { gravity = Gravity.CENTER; setPadding(0, dp(8), 0, dp(4)) })
-                  val info = label("", 13f, SUB).apply { gravity = Gravity.CENTER }
-                  fun upd() { info.text = "${pickLoc()} 현재 ${at(pickLoc()).size}개" }
-                  content.addView(locPicker({ showMove() }, { upd() }))
-                  upd(); content.addView(info)
+                  val cur = q.firstOrNull { it.id == moveCur } ?: q.firstOrNull()
+                  moveCur = cur?.id ?: 0L
+                  if (cur == null) {
+                      if (movedDone.isEmpty()) content.addView(label("라벨을 찍거나 칸에서 골라 대기열을 만드세요", 14f, DIM).apply { gravity = Gravity.CENTER; setPadding(0, dp(16), 0, dp(16)) })
+                      else content.addView(card(Color.rgb(34, 28, 60), PURPLE).apply {
+                          addView(label("대기열을 다 옮겼어요 👍", 19f, Color.WHITE, true))
+                          addView(label("더 옮길 게 있으면 라벨을 찍으세요", 14f, SUB))
+                      })
+                  } else {
+                      val c = LinearLayout(this).apply {
+                          orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                          background = round(CARD, 16, PURPLE); setPadding(dp(14), dp(12), dp(14), dp(12))
+                      }
+                      c.addView(numBadge(q.indexOf(cur) + 1, mkColor(cur.mk), 72))
+                      val t = vbox().apply { setPadding(dp(14), 0, 0, 0) }
+                      t.addView(label("지금 옮기는 것", 13f, SUB))
+                      t.addView(label(cur.lot, 28f, Color.WHITE, true).apply { maxLines = 1; isSingleLine = true; ellipsize = android.text.TextUtils.TruncateAt.START })
+                      t.addView(label(cur.name.ifBlank { cur.mk }, 15f, Color.rgb(200, 206, 218)).apply { maxLines = 2 })
+                      t.addView(label("📍 지금 ${cur.loc}", 20f, Color.rgb(255, 200, 120), true))
+                      c.addView(t, LinearLayout.LayoutParams(0, -2, 1f))
+                      content.addView(c)
+                      content.addView(label("▼ 어디로", 15f, PURPLE, true).apply { gravity = Gravity.CENTER; setPadding(0, dp(8), 0, dp(4)) })
+                      val info = label("", 13f, SUB).apply { gravity = Gravity.CENTER }
+                      fun upd() { info.text = "${pickLoc()} 현재 ${at(pickLoc()).size}개" }
+                      content.addView(locPicker({ showMove() }, { upd() }))
+                      upd(); content.addView(info)
+                      val nextN = q.indexOf(cur).let { i -> q.getOrNull(i + 1) }
+                      content.addView(big(btn("저장 · ${pickLoc()}" + if (nextN != null) "  → 다음" else "", PURPLE) { moveOne(cur, pickLoc()) }, 64, 18f))
+                      if (lastMoveLoc.isNotEmpty() && lastMoveLoc != cur.loc)
+                          content.addView(big(btn("이것도 같은 칸 ($lastMoveLoc)", Color.rgb(45, 70, 110)) { moveOne(cur, lastMoveLoc) }, 58, 17f))
+                      if (q.size > 1) content.addView(btn("남은 ${q.size}개 전부 ${pickLoc()}에", GREY) {
+                          ask("한 번에 이동", "남은 ${q.size}개를 전부 ${pickLoc()}로 옮길까요?", "옮기기") {
+                              val to = pickLoc()
+                              for (x in q) moveSilent(x, to)
+                              lastMoveLoc = to; save(); buzz(150); showMove()
+                          }
+                      })
+                      content.addView(btn("이건 안 옮김 (대기열에서 빼기)", Color.rgb(70, 40, 46)) { moveSel.remove(cur.id); moveCur = 0L; showMove() }.apply { textSize = 14f; minHeight = dp(42) })
+                      content.addView(label("대기열 ${q.size}개 (눌러서 순서 바꾸기)", 13f, SUB).apply { setPadding(0, dp(10), 0, 0) })
+                      for ((i, x) in q.withIndex()) {
+                          val on = x.id == cur.id
+                          content.addView(itemRow(x, x.loc, if (on) Color.WHITE else SUB, if (on) Color.rgb(40, 34, 70) else CARD, if (on) PURPLE else null, n = i + 1, rightSize = 16f) {
+                              moveCur = x.id; showMove()
+                          })
+                      }
+                  }
+                  val done = movedDone.mapNotNull { (id, from) -> items.firstOrNull { it.id == id }?.let { it to from } }.asReversed()
+                  if (done.isNotEmpty()) {
+                      content.addView(label("이동 완료 ${done.size}개 (눌러서 되돌리기)", 13f, SUB).apply { setPadding(0, dp(10), 0, 0) })
+                      for ((x, from) in done) content.addView(itemRow(x, "$from → ${x.loc}", GREEN, Color.rgb(24, 27, 33), n = 0) {
+                          ask("이동 되돌리기", "${x.lot}\n${x.loc} → $from 으로 되돌릴까요?", "되돌리기") {
+                              val now = x.loc; x.loc = from; log("이동", x, "$now→$from (되돌림)")
+                              movedDone.removeAll { it.first == x.id }
+                              save(); showMove()
+                          }
+                      })
+                  }
                   val bottom = vbox()
-                  bottom.addView(big(btn(if (sel.isEmpty()) "옮길 걸 먼저 고르세요" else "${sel.size}개 → ${pickLoc()} 이동", if (sel.isEmpty()) GREY else PURPLE) {
-                      if (sel.isEmpty()) return@btn
-                      val to = pickLoc()
-                      for (x in sel) { val from = x.loc; x.loc = to; log("이동", x, "$from→$to") }
-                      moveSel.clear(); save(); buzz(150)
-                      toast("${sel.size}개 → $to 이동")
-                      showMove()
-                  }))
-                  page(topBar("재고 이동", "${sel.size}개", PURPLE), content, bottom)
+                  bottom.addView(big(btn("이동 끝", GREY) { moveSel.clear(); movedDone.clear(); lastMoveLoc = ""; moveCur = 0L; showHome() }, 52, 16f))
+                  page(topBar("재고 이동", "${q.size}개 남음", PURPLE), content, bottom)
+              }
+
+              private fun moveSilent(x: RItem, to: String) {
+                  val from = x.loc
+                  moveSel.remove(x.id)
+                  if (from == to) return
+                  x.loc = to
+                  log("이동", x, "$from→$to")
+                  movedDone.add(x.id to from)
+              }
+
+              private fun moveOne(x: RItem, to: String) {
+                  if (x.loc == to) { toast("지금 있는 칸이에요 ($to)"); return }
+                  moveSilent(x, to)
+                  lastMoveLoc = to
+                  moveCur = 0L
+                  save(); buzz(120)
+                  toast("${x.lot.takeLast(6)} → $to")
+                  showMove()
               }
 
               private fun pickFromCell() {
