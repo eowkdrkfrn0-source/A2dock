@@ -2736,7 +2736,19 @@ jobs:
                   showOut()
               }
 
-              private fun applyRefs(rows: List<RRef>, gone: Set<String> = emptySet()) {
+              /** 목록 LOT 표기 통일: "2602100646 (BOX NO. 006)" → "2602100646-006" (라벨 찍은 것과 같게) */
+              private fun normLot(v: String): String {
+                  val t = v.trim().uppercase()
+                  Regex("^(\\d{6,})\\s*[(\\[]?\\s*BOX\\s*NO\\.?\\s*(\\d+)\\s*[)\\]]?$").find(t)?.let { m ->
+                      return m.groupValues[1] + "-" + m.groupValues[2].padStart(3, '0')
+                  }
+                  return t
+              }
+
+              private fun applyRefs(rows0: List<RRef>, gone0: Set<String> = emptySet()) {
+                  for (k in refs.keys.toList()) { val nk = normLot(k); if (nk != k) { val o = refs.remove(k)!!; if (!refs.containsKey(nk)) refs[nk] = RRef(nk, o.name, o.qty, o.bl, o.inDate) } }
+                  val rows = rows0.map { if (normLot(it.lot) == it.lot) it else RRef(normLot(it.lot), it.name, it.qty, it.bl, it.inDate) }
+                  val gone = gone0.map { normLot(it) }.toSet()
                   if (rows.isEmpty()) { toast("LOT를 못 찾았어요"); showRef(); return }
                   var removed = 0
                   for (g in gone) if (refs.remove(g) != null) removed++
@@ -2761,7 +2773,7 @@ jobs:
                       val r = refs[s.lot] ?: continue
                       var ch = false
                       if (s.bl.isBlank() && r.bl.isNotBlank()) { s.bl = r.bl; ch = true }
-                      if (s.name.isBlank() || s.name.startsWith("P4")) if (r.name.isNotBlank()) { s.name = r.name; ch = true }
+                      if (s.name.isBlank() || s.name.startsWith("P4") || (s.name != r.name && s.name.startsWith(r.name))) if (r.name.isNotBlank()) { s.name = r.name; ch = true }
                       if (r.inDate.isNotBlank() && s.inDate != r.inDate) { s.inDate = r.inDate; ch = true }
                       if (ch) n++
                   }
