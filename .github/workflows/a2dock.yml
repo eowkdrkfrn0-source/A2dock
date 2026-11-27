@@ -4505,7 +4505,20 @@ jobs:
               private fun page(root: LinearLayout) {
                   val sv = ScrollView(this).apply { setBackgroundColor(BG); isFillViewport = true; addView(root) }
                   curScroll = sv
-                  setContentView(sv)
+                  if (screen == "setup") {   // 첫 화면엔 재고관리 공통 아래 탭
+                      val outer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG) }
+                      outer.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f))
+                      outer.addView(com.nakyung.a2dock.Ui.tabBar(this, "tally") { t -> goTab(t) })
+                      setContentView(outer)
+                  } else setContentView(sv)
+              }
+
+              private fun goTab(t: String) {
+                  saveState()
+                  startActivity(Intent(this, com.nakyung.a2dock.MainActivity::class.java).putExtra("tab", t)
+                      .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+                  finish()
+                  overridePendingTransition(0, 0)
               }
 
               /** 같은 화면 다시 그리기 (스크롤 위치 유지) */
