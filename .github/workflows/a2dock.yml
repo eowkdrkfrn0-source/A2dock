@@ -979,13 +979,13 @@ jobs:
                   root.addView(section("☰  오늘 작업"))
                   val oc = card()
                   oc.addView(row(
-                      Ui.stat(this, "${dToday.count { it[1] == "입고" }}", "도크 입고", GREEN),
-                      Ui.stat(this, "${dToday.count { it[1] == "출고" }}", "도크 출고", Color.rgb(255, 140, 120)),
-                      Ui.stat(this, "${rToday.count { it.optString("k") == "입고" }}", "랙 입고", GREEN),
-                      Ui.stat(this, "${rToday.count { it.optString("k") == "출고" }}", "랙 출고", Color.rgb(255, 140, 120))
+                      Ui.stat(this, "${dToday.count { it[1] == "입고" }}", "한화오션 입고", GREEN),
+                      Ui.stat(this, "${dToday.count { it[1] == "출고" }}", "한화오션 출고", Color.rgb(255, 140, 120)),
+                      Ui.stat(this, "${rToday.count { it.optString("k") == "입고" }}", "한울 입고", GREEN),
+                      Ui.stat(this, "${rToday.count { it.optString("k") == "출고" }}", "한울 출고", Color.rgb(255, 140, 120))
                   ))
                   val mv = rToday.count { it.optString("k") == "이동" }
-                  if (mv > 0) oc.addView(label("랙 이동 ${mv}건", 13f, SUB).apply { gravity = Gravity.CENTER })
+                  if (mv > 0) oc.addView(label("한울 이동 ${mv}건", 13f, SUB).apply { gravity = Gravity.CENTER })
                   oc.addView(btn("기록 보기 ›") { showHistory() })
                   root.addView(oc)
 
@@ -1023,7 +1023,7 @@ jobs:
 
                   if (histTab == "dock") {
                       root.addView(row(btn("공유 (엑셀용 CSV)", PRIMARY) { shareCsv() }, btn("기록 지우기", Color.rgb(70, 40, 46)) {
-                          AlertDialog.Builder(this).setMessage("도크 입출고 기록만 지웁니다. (배치도는 그대로)")
+                          AlertDialog.Builder(this).setMessage("한화오션 입출고 기록만 지웁니다. (배치도는 그대로)")
                               .setPositiveButton("지우기") { _, _ -> history.clear(); save(); showHistory() }
                               .setNegativeButton("취소", null).show()
                       }))
@@ -1080,7 +1080,7 @@ jobs:
                   sb.append("\n현재 배치\n공간,순서,구분,B/L,파레트,줄,메모\n")
                   for ((side, l) in kotlin.collections.listOf(Pair("좌측", left), Pair("우측", right)))
                       l.forEachIndexed { i, s -> sb.append("$side,${i + 1},${if (s.gap) "빈자리" else "B/L"},${s.bl},${s.pallets},${s.lines},\"${s.memo}\"\n") }
-                  val f = File(cacheDir, "A2도크_" + SimpleDateFormat("yyyyMMdd_HHmm", Locale.KOREA).format(Date()) + ".csv")
+                  val f = File(cacheDir, "한화오션_" + SimpleDateFormat("yyyyMMdd_HHmm", Locale.KOREA).format(Date()) + ".csv")
                   f.writeText(sb.toString(), Charsets.UTF_8)
                   val uri = FileProvider.getUriForFile(this, "com.nakyung.a2dock.files", f)
                   startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
