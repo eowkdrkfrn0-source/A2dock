@@ -2895,6 +2895,7 @@ jobs:
                   val c = card()
                   c.addView(label("사무실 재고 목록 ${refs.size}줄", 17f, Color.WHITE, true))
                   c.addView(label("목록을 넣어두면 라벨만 찍어도 B/L·입고일·품명이 자동으로 들어가요", 13f, SUB))
+                  if (File(filesDir, "office.xlsx").exists()) c.addView(label("✓ 마지막 엑셀을 내보내기 양식으로 저장해 뒀어요 (홈 → 엑셀 내보내기 → 사무실 양식)", 12f, GREEN))
                   c.addView(row(
                       btn("📷 캡처 불러오기", BLUE) { imgPurpose = "ref"; pickImages.launch("image/*") },
                       btn("📄 엑셀 불러오기", Color.rgb(30, 110, 70)) { pickXlsx.launch("*/*") }
@@ -2929,9 +2930,11 @@ jobs:
 
               private fun importXlsx(uri: Uri) {
                   try {
-                      val rows = contentResolver.openInputStream(uri)?.use { XlsxRead.read(it) } ?: emptyList()
+                      val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return
+                      val rows = XlsxRead.read(java.io.ByteArrayInputStream(bytes))
                       val hIdx = rows.indexOfFirst { r -> r.values.any { it.uppercase().contains("LOT") } }
                       if (hIdx < 0) { toast("LOT 칸을 못 찾았어요"); return }
+                      try { File(filesDir, "office.xlsx").writeBytes(bytes) } catch (e: Exception) { }   // 엑셀 내보내기 양식으로 보관
                       val h = rows[hIdx]
                       val h2 = rows.getOrNull(hIdx + 1) ?: emptyMap()
                       fun colOf(vararg keys: String): Int? {
@@ -3050,8 +3053,39 @@ jobs:
 
               // ======================= 엑셀 =======================
               private fun exportXlsx() {
-                  toast("엑셀 만드는 중…")
-                  fetchHist { hs -> exportXlsx2(hs) }
+                  val tpl = File(filesDir, "office.xlsx")
+                  if (!tpl.exists()) { toast("엑셀 만드는 중…"); fetchHist { hs -> exportXlsx2(hs) }; return }
+                  AlertDialog.Builder(this).setTitle("엑셀 내보내기")
+                      .setItems(arrayOf("📋 사무실 양식 (보관 내역 + 로케이션)", "📦 랙 재고 기본 (재고·이력 시트)")) { _, w ->
+                          if (w == 0) exportOffice() else { toast("엑셀 만드는 중…"); fetchHist { hs -> exportXlsx2(hs) } }
+                      }.setNegativeButton("취소", null).show()
+              }
+
+              /** 마지막에 불러온 사무실 엑셀 양식 그대로 + 로케이션, 이번 달 제목, 지난달 출고분 삭제 */
+              private fun exportOffice() {
+                  try {
+                      val src = File(filesDir, "office.xlsx").readBytes()
+                      val locOf = HashMap<String, String>()
+                      for (x in stock().sortedBy { locSortKey(it.loc) }) {
+                          val k = normLot(x.lot)
+                          val prev = locOf[k]
+                          locOf[k] = if (prev == null) x.loc else if (prev.split(", ").contains(x.loc)) prev else "$prev, ${x.loc}"
+                      }
+                      val cal = Calendar.getInstance()
+                      val y = cal.get(Calendar.YEAR); val m = cal.get(Calendar.MONTH) + 1
+                      val first = java.util.GregorianCalendar(y, m - 1, 1)
+                      val base = java.util.GregorianCalendar(1899, 11, 30)
+                      val serial = ((first.timeInMillis - base.timeInMillis + 43200000L) / 86400000L).toInt()
+                      val f = File(File(cacheDir, "x"), "보관내역_${y}년${m}월_" + SimpleDateFormat("MMdd_HHmm", Locale.KOREA).format(Date()) + ".xlsx")
+                      val r = OfficeXlsx.build(src, f, locOf, locOf.keys, y, m, serial) { normLot(it) }
+                      toast("${y}년 ${m}월 · 로케이션 ${r.filled}줄" + if (r.removed > 0) " · 지난달 출고 ${r.removed}줄 뺌" else "")
+                      val uri = FileProvider.getUriForFile(this, "com.nakyung.a2dock.files", f)
+                      startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                          type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                          putExtra(Intent.EXTRA_STREAM, uri)
+                          addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                      }, "엑셀 공유"))
+                  } catch (e: Exception) { toast("엑셀 만들기 실패: ${e.message}") }
               }
 
               private fun exportXlsx2(hs: List<JSONObject>) {
@@ -3705,6 +3739,281 @@ jobs:
           }
           TALLY_EOF
           mkdir -p "app/src/main/java/com/nakyung/a2dock"
+          cat > 'app/src/main/java/com/nakyung/a2dock/OfficeXlsx.kt' <<'TALLY_EOF'
+          package com.nakyung.a2dock
+
+          import java.io.ByteArrayInputStream
+          import java.io.File
+          import java.util.zip.ZipEntry
+          import java.util.zip.ZipInputStream
+          import java.util.zip.ZipOutputStream
+
+          /**
+           * 사무실 "보관 내역" 엑셀을 양식 그대로 두고
+           *  - 로케이션 칸 채우기
+           *  - 제목·시트이름의 "YYYY년 M월"을 이번 달로
+           *  - 지난달 이전에 출고 끝난 줄(재고 0 이하) 지우기 (랙에 실재고로 있는 LOT는 안 지움)
+           * 비고·사진·서식·병합은 그대로.
+           */
+          object OfficeXlsx {
+              class Result(val kept: Int, val removed: Int, val filled: Int, val title: String)
+
+              private val reRow = Regex("<row\\b[^>]*?(?:/>|>.*?</row>)", RegexOption.DOT_MATCHES_ALL)
+              private val reCell = Regex("<c\\b[^>]*?(?:/>|>.*?</c>)", RegexOption.DOT_MATCHES_ALL)
+              private val reRef = Regex("(?<![A-Za-z_\\d.!'])(\\$?)([A-Z]{1,3})(\\$?)(\\d+)(?![\\d(A-Za-z_])")
+              private val reYm = Regex("(\\d{4})\\s*년\\s*(\\d{1,2})\\s*월")
+
+              private fun attr(tag: String, name: String): String? = Regex("\\b$name=\"([^\"]*)\"").find(tag)?.groupValues?.get(1)
+              private fun setAttr(tag: String, name: String, v: String): String {
+                  val re = Regex("\\b$name=\"[^\"]*\"")
+                  return if (re.containsMatchIn(tag)) tag.replaceFirst(re, "$name=\"$v\"")
+                  else tag.replaceFirst(Regex("^<(\\w+)"), "<$1 $name=\"$v\"")
+              }
+              private fun unesc(s: String) = s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
+              private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+              fun colIdx(c: String): Int { var n = 0; for (ch in c) n = n * 26 + (ch - 'A' + 1); return n }
+              fun colName(i: Int): String { var n = i; val sb = StringBuilder(); while (n > 0) { val m = (n - 1) % 26; sb.insert(0, 'A' + m); n = (n - 1) / 26 }; return sb.toString() }
+
+              private class Cell(var raw: String, val col: String, val row: Int) {
+                  val ci get() = colIdx(col)
+              }
+              private class Row(var open: String, val r: Int, val cells: MutableList<Cell>, val selfClose: Boolean)
+
+              private fun parseRow(raw: String): Row {
+                  val open = Regex("^<row\\b[^>]*?/?>").find(raw)!!.value
+                  val r = attr(open, "r")!!.toInt()
+                  val cells = ArrayList<Cell>()
+                  if (!open.endsWith("/>")) for (m in reCell.findAll(raw.substring(open.length))) {
+                      val ref = attr(Regex("^<c\\b[^>]*?/?>").find(m.value)!!.value, "r") ?: continue
+                      val col = ref.takeWhile { it.isLetter() }
+                      cells.add(Cell(m.value, col, r))
+                  }
+                  return Row(open, r, cells, open.endsWith("/>"))
+              }
+
+              fun build(src: ByteArray, out: File, locOf: Map<String, String>, keepLots: Set<String>,
+                        year: Int, month: Int, firstOfMonthSerial: Int, norm: (String) -> String): Result {
+                  // ---- unzip ----
+                  val entries = LinkedHashMap<String, ByteArray>()
+                  ZipInputStream(ByteArrayInputStream(src)).use { z ->
+                      while (true) { val e = z.nextEntry ?: break; if (!e.isDirectory) entries[e.name] = z.readBytes() }
+                  }
+                  fun txt(n: String) = entries[n]?.toString(Charsets.UTF_8)
+                  val wb = txt("xl/workbook.xml") ?: throw Exception("엑셀 형식이 아니에요")
+                  val rels = txt("xl/_rels/workbook.xml.rels") ?: ""
+                  val sheetTag = Regex("<sheet\\b[^>]*/>").find(wb)?.value ?: throw Exception("시트 없음")
+                  val rid = Regex("r:id=\"([^\"]+)\"").find(sheetTag)?.groupValues?.get(1)
+                  val target = Regex("<Relationship\\b[^>]*Id=\"$rid\"[^>]*/>").find(rels)?.value?.let { attr(it, "Target") } ?: "worksheets/sheet1.xml"
+                  val sheetPath = if (target.startsWith("/")) target.removePrefix("/") else "xl/" + target
+                  val sheetName = unesc(attr(sheetTag, "name") ?: "")
+                  var sx = txt(sheetPath) ?: throw Exception("시트 없음")
+
+                  // ---- shared strings ----
+                  val sst = ArrayList<String>()
+                  txt("xl/sharedStrings.xml")?.let { ss ->
+                      for (m in Regex("<si>(.*?)</si>|<si/>", RegexOption.DOT_MATCHES_ALL).findAll(ss)) {
+                          val body = m.groupValues.getOrNull(1) ?: ""
+                          sst.add(unesc(Regex("<t[^>]*>(.*?)</t>", RegexOption.DOT_MATCHES_ALL).findAll(body.replace(Regex("<rPh\\b.*?</rPh>", RegexOption.DOT_MATCHES_ALL), "")).joinToString("") { it.groupValues[1] }))
+                      }
+                  }
+                  fun cellText(c: Cell?): String {
+                      if (c == null) return ""
+                      val open = Regex("^<c\\b[^>]*?/?>").find(c.raw)!!.value
+                      val t = attr(open, "t")
+                      val v = Regex("<v>(.*?)</v>", RegexOption.DOT_MATCHES_ALL).find(c.raw)?.groupValues?.get(1)
+                      return when (t) {
+                          "s" -> v?.toIntOrNull()?.let { sst.getOrNull(it) } ?: ""
+                          "inlineStr" -> unesc(Regex("<t[^>]*>(.*?)</t>", RegexOption.DOT_MATCHES_ALL).findAll(c.raw).joinToString("") { it.groupValues[1] })
+                          else -> v?.let { unesc(it) } ?: ""
+                      }
+                  }
+
+                  // ---- rows ----
+                  val sdStart = sx.indexOf("<sheetData>")
+                  val sdEnd = sx.indexOf("</sheetData>")
+                  if (sdStart < 0 || sdEnd < 0) throw Exception("빈 시트")
+                  val prefix = sx.substring(0, sdStart + "<sheetData>".length)
+                  val body = sx.substring(sdStart + "<sheetData>".length, sdEnd)
+                  var suffix = sx.substring(sdEnd)
+                  val rows = reRow.findAll(body).map { parseRow(it.value) }.toMutableList()
+                  val byR = rows.associateBy { it.r }
+                  fun cellAt(r: Int, col: String) = byR[r]?.cells?.firstOrNull { it.col == col }
+
+                  // 머리글
+                  val hdrRow = rows.firstOrNull { row -> row.cells.any { cellText(it).uppercase().replace(" ", "").contains("LOT") } } ?: throw Exception("LOT 머리글을 못 찾았어요")
+                  val hdr = hdrRow.r
+                  val lotCol = hdrRow.cells.first { cellText(it).uppercase().replace(" ", "").contains("LOT") }.col
+                  val maxCi = (rows.filter { it.r == hdr || it.r == hdr + 1 }.flatMap { r -> r.cells.filter { cellText(it).isNotBlank() }.map { it.ci } }.maxOrNull() ?: 1)
+                  val top = HashMap<Int, String>(); val bot = HashMap<Int, String>()
+                  for (ci in 1..maxCi) { top[ci] = cellText(cellAt(hdr, colName(ci))).replace(Regex("\\s"), ""); bot[ci] = cellText(cellAt(hdr + 1, colName(ci))).replace(Regex("\\s"), "") }
+                  // 병합된 위 머리글 (예: 출고 I4:J4) 을 오른쪽 칸에도
+                  val merges = Regex("<mergeCell ref=\"([A-Z]+)(\\d+):([A-Z]+)(\\d+)\"\\s*/>").findAll(suffix).map { m ->
+                      intArrayOf(colIdx(m.groupValues[1]), m.groupValues[2].toInt(), colIdx(m.groupValues[3]), m.groupValues[4].toInt())
+                  }.toList()
+                  for (m in merges) if (m[1] == hdr) for (ci in m[0]..m[2]) if (top[ci].isNullOrEmpty()) top[ci] = top[m[0]] ?: ""
+                  val outCi = (1..maxCi).firstOrNull { top[it]!!.contains("출고") && bot[it]!!.contains("일자") }
+                  val stockCi = (1..maxCi).firstOrNull { top[it] == "재고" || bot[it] == "재고" }
+                  var locCi = (1..maxCi).firstOrNull { top[it]!!.contains("로케이션") || bot[it]!!.contains("로케이션") }
+                  val locCol: String
+                  if (locCi == null) {
+                      locCi = maxCi + 1; locCol = colName(locCi)
+                      val hr = rows.first { it.r == hdr }
+                      val st = hr.cells.lastOrNull()?.let { attr(Regex("^<c\\b[^>]*?/?>").find(it.raw)!!.value, "s") }
+                      hr.cells.add(Cell("<c r=\"$locCol$hdr\"" + (if (st != null) " s=\"$st\"" else "") + " t=\"inlineStr\"><is><t>로케이션</t></is></c>", locCol, hdr))
+                  } else locCol = colName(locCi)
+
+                  // 데이터 범위: 머리글 2줄 아래 ~ "합계" 전
+                  val sumRow = rows.firstOrNull { r -> r.r > hdr + 1 && r.cells.any { cellText(it).replace(" ", "") == "합계" } }?.r ?: Int.MAX_VALUE
+                  val data = rows.filter { it.r >= hdr + 2 && it.r < sumRow }
+
+                  // 병합칸 값 물려받기 (세로 병합의 맨 위 값)
+                  fun numAt(r: Int, ci: Int?): Double? {
+                      if (ci == null) return null
+                      var rr = r
+                      val c = cellAt(r, colName(ci))
+                      if (c == null || cellText(c).isBlank()) merges.firstOrNull { it[0] <= ci && ci <= it[2] && it[1] < r && r <= it[3] }?.let { rr = it[1] }
+                      val s = cellText(cellAt(rr, colName(ci))).trim()
+                      s.toDoubleOrNull()?.let { return it }
+                      Regex("(20\\d\\d)[-./](\\d{1,2})[-./](\\d{1,2})").find(s)?.let { m ->
+                          val cal = java.util.GregorianCalendar(m.groupValues[1].toInt(), m.groupValues[2].toInt() - 1, m.groupValues[3].toInt())
+                          val base = java.util.GregorianCalendar(1899, 11, 30)
+                          return ((cal.timeInMillis - base.timeInMillis + 43200000L) / 86400000L).toDouble()
+                      }
+                      return null
+                  }
+
+                  // 지울 줄
+                  val del = HashSet<Int>()
+                  for (row in data) {
+                      val outD = numAt(row.r, outCi) ?: continue
+                      val st = numAt(row.r, stockCi) ?: continue
+                      val lot = norm(cellText(cellAt(row.r, lotCol)))
+                      if (outD < firstOfMonthSerial && st <= 0.0 && (lot.isEmpty() || lot !in keepLots)) del.add(row.r)
+                  }
+                  val delSorted = del.sorted()
+                  fun nr(r: Int): Int { var k = 0; for (d in delSorted) { if (d < r) k++ else break }; return r - k }
+                  fun remapRefs(f: String): String = reRef.replace(f) { m -> m.groupValues[1] + m.groupValues[2] + m.groupValues[3] + nr(m.groupValues[4].toInt()) }
+                  fun shiftRefs(f: String, dr: Int, dc: Int): String = reRef.replace(f) { m ->
+                      val c = if (m.groupValues[1] == "$") m.groupValues[2] else colName(colIdx(m.groupValues[2]) + dc)
+                      val r = if (m.groupValues[3] == "$") m.groupValues[4].toInt() else m.groupValues[4].toInt() + dr
+                      m.groupValues[1] + c + m.groupValues[3] + r
+                  }
+                  // 공유 수식 원본
+                  val masters = HashMap<String, Triple<String, Int, Int>>()
+                  for (row in rows) for (c in row.cells) {
+                      val fm = Regex("<f\\b([^>]*)>(.*?)</f>", RegexOption.DOT_MATCHES_ALL).find(c.raw) ?: continue
+                      if (attr(fm.groupValues[1], "t") == "shared") attr(fm.groupValues[1], "si")?.let { masters[it] = Triple(fm.groupValues[2], row.r, c.ci) }
+                  }
+
+                  // ---- 줄 다시 쓰기 ----
+                  var filled = 0
+                  val locStyle = data.firstNotNullOfOrNull { r -> r.cells.firstOrNull { it.col == locCol }?.let { attr(Regex("^<c\\b[^>]*?/?>").find(it.raw)!!.value, "s") } }
+                  val dataSet = data.map { it.r }.toHashSet()
+                  val sb = StringBuilder()
+                  var titleNew = ""
+                  for (row in rows) {
+                      if (row.r in del) continue
+                      // 제목 (머리글 위)
+                      if (row.r < hdr) for (c in row.cells) {
+                          val t = cellText(c)
+                          if (reYm.containsMatchIn(t)) {
+                              titleNew = reYm.replace(t, "${year}년 ${month}월")
+                              val s = attr(Regex("^<c\\b[^>]*?/?>").find(c.raw)!!.value, "s")
+                              c.raw = "<c r=\"${c.col}${c.row}\"" + (if (s != null) " s=\"$s\"" else "") + " t=\"inlineStr\"><is><t xml:space=\"preserve\">${esc(titleNew)}</t></is></c>"
+                          }
+                      }
+                      // 로케이션
+                      if (row.r in dataSet) {
+                          val lot = norm(cellText(cellAt(row.r, lotCol)))
+                          val loc = if (lot.isNotEmpty()) locOf[lot] else null
+                          if (!loc.isNullOrEmpty()) {
+                              val ex = row.cells.firstOrNull { it.col == locCol }
+                              val s = ex?.let { attr(Regex("^<c\\b[^>]*?/?>").find(it.raw)!!.value, "s") } ?: locStyle
+                              val raw = "<c r=\"$locCol${row.r}\"" + (if (s != null) " s=\"$s\"" else "") + " t=\"inlineStr\"><is><t>${esc(loc)}</t></is></c>"
+                              if (ex != null) ex.raw = raw else row.cells.add(Cell(raw, locCol, row.r))
+                              filled++
+                          }
+                      }
+                      row.cells.sortBy { it.ci }
+                      val n = nr(row.r)
+                      var open = setAttr(row.open, "r", "$n").replace(Regex("\\s+spans=\"[^\"]*\""), "")
+                      if (row.cells.isEmpty()) { sb.append(if (open.endsWith("/>")) open else open.removeSuffix(">").trimEnd() + "/>"); continue }
+                      if (open.endsWith("/>")) open = open.removeSuffix("/>").trimEnd() + ">"
+                      sb.append(open)
+                      for (c in row.cells) {
+                          var raw = c.raw.replaceFirst(Regex("\\br=\"[A-Z]+\\d+\""), "r=\"${c.col}$n\"")
+                          val fm = Regex("<f\\b([^>]*?)(?:/>|>(.*?)</f>)", RegexOption.DOT_MATCHES_ALL).find(raw)
+                          if (fm != null) {
+                              val a = fm.groupValues[1]
+                              val text = if (attr(a, "t") == "shared") {
+                                  val ms = masters[attr(a, "si")]
+                                  if (ms != null) shiftRefs(unesc(ms.first), c.row - ms.second, c.ci - ms.third) else null
+                              } else unesc(fm.groupValues[2])
+                              val keepAttr = if (attr(a, "t") == "shared") "" else a.replace(Regex("\\s+ref=\"[^\"]*\""), "")
+                              raw = if (text == null) raw.replace(fm.value, "")
+                                    else raw.replace(fm.value, "<f$keepAttr>" + esc(remapRefs(text)) + "</f>")
+                          }
+                          sb.append(raw)
+                      }
+                      sb.append("</row>")
+                  }
+
+                  // ---- 시트 나머지 ----
+                  val lastRow = rows.filter { it.r !in del }.maxOfOrNull { nr(it.r) } ?: 1
+                  var pre = prefix.replace(Regex("<dimension ref=\"([A-Z]+\\d+):([A-Z]+)(\\d+)\"")) { m ->
+                      val endC = if (colIdx(m.groupValues[2]) < locCi) locCol else m.groupValues[2]
+                      "<dimension ref=\"${m.groupValues[1]}:$endC$lastRow\""
+                  }
+                  // 병합
+                  val mcs = ArrayList<String>()
+                  for (m in merges) {
+                      val kept = (m[1]..m[3]).filter { it !in del }
+                      if (kept.isEmpty()) continue
+                      val r1 = nr(kept.first()); val r2 = nr(kept.last())
+                      if (r1 == r2 && m[0] == m[2]) continue
+                      mcs.add("<mergeCell ref=\"${colName(m[0])}$r1:${colName(m[2])}$r2\"/>")
+                  }
+                  suffix = suffix.replace(Regex("<mergeCells\\b[^>]*>.*?</mergeCells>", RegexOption.DOT_MATCHES_ALL),
+                      if (mcs.isEmpty()) "" else "<mergeCells count=\"${mcs.size}\">${mcs.joinToString("")}</mergeCells>")
+                  suffix = suffix.replace(Regex("<autoFilter ref=\"([A-Z]+)(\\d+):([A-Z]+)(\\d+)\"")) { m ->
+                      val endC = if (colIdx(m.groupValues[3]) < locCi) locCol else m.groupValues[3]
+                      "<autoFilter ref=\"${m.groupValues[1]}${nr(m.groupValues[2].toInt())}:$endC${nr(m.groupValues[4].toInt())}\""
+                  }
+                  suffix = suffix.replace(Regex("sqref=\"([^\"]*)\"")) { m -> "sqref=\"" + remapRefs(m.groupValues[1]) + "\"" }
+                  sx = pre + sb.toString() + suffix
+                  entries[sheetPath] = sx.toByteArray(Charsets.UTF_8)
+
+                  // ---- 통합문서: 시트이름 yyyyMM, 이름정의, 재계산 ----
+                  var w = wb
+                  val ym = "%04d%02d".format(year, month)
+                  var newName = sheetName
+                  if (Regex("^\\d{6}$").matches(sheetName) && sheetName != ym) newName = ym
+                  if (newName != sheetName) {
+                      w = w.replace("name=\"${esc(sheetName)}\"", "name=\"$newName\"")
+                      w = w.replace("'$sheetName'!", "'$newName'!").replace(">$sheetName!", ">$newName!")
+                  }
+                  w = w.replace(Regex("(<definedName\\b[^>]*>)(.*?)(</definedName>)", RegexOption.DOT_MATCHES_ALL)) { m ->
+                      val body2 = m.groupValues[2]
+                      if (body2.contains("'$newName'!") || body2.contains("$newName!")) m.groupValues[1] + remapRefs(body2) + m.groupValues[3] else m.value
+                  }
+                  w = if (w.contains("<calcPr")) {
+                      if (w.contains("fullCalcOnLoad")) w else w.replaceFirst("<calcPr", "<calcPr fullCalcOnLoad=\"1\"")
+                  } else w.replace("</workbook>", "<calcPr fullCalcOnLoad=\"1\"/></workbook>")
+                  entries["xl/workbook.xml"] = w.toByteArray(Charsets.UTF_8)
+                  if (entries.remove("xl/calcChain.xml") != null) {
+                      txt("[Content_Types].xml")?.let { entries["[Content_Types].xml"] = it.replace(Regex("<Override PartName=\"/xl/calcChain.xml\"[^>]*/>"), "").toByteArray(Charsets.UTF_8) }
+                      entries["xl/_rels/workbook.xml.rels"] = rels.replace(Regex("<Relationship\\b[^>]*Target=\"[^\"]*calcChain.xml\"[^>]*/>"), "").toByteArray(Charsets.UTF_8)
+                  }
+
+                  // ---- zip ----
+                  out.parentFile?.mkdirs()
+                  ZipOutputStream(out.outputStream()).use { z ->
+                      for ((n, b) in entries) { z.putNextEntry(ZipEntry(n)); z.write(b); z.closeEntry() }
+                  }
+                  return Result(data.size - del.size, del.size, filled, titleNew)
+              }
+          }
+          TALLY_EOF
           cat > 'app/src/main/java/com/nakyung/a2dock/Ui.kt' <<'TALLY_EOF'
           package com.nakyung.a2dock
 
