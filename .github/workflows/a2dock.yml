@@ -2623,8 +2623,10 @@ jobs:
                   showOut()
               }
 
-              private fun applyRefs(rows: List<RRef>) {
+              private fun applyRefs(rows: List<RRef>, gone: Set<String> = emptySet()) {
                   if (rows.isEmpty()) { toast("LOT를 못 찾았어요"); showRef(); return }
+                  var removed = 0
+                  for (g in gone) if (refs.remove(g) != null) removed++
                   var n = 0
                   for (r in rows) {
                       val old = refs[r.lot]
@@ -2635,7 +2637,7 @@ jobs:
                   }
                   val filled = fillFromRefs()
                   save()
-                  toast("목록 ${n}줄 읽음" + if (filled > 0) " · 재고 ${filled}개 B/L·입고일 채움" else "")
+                  toast("재고 남은 ${n}줄 읽음" + (if (gone.isNotEmpty()) " · 출고 끝난 ${gone.size}줄 뺌" else "") + if (filled > 0) " · 재고 ${filled}개 B/L·입고일 채움" else "")
                   showRef()
               }
 
@@ -2673,7 +2675,7 @@ jobs:
                       val onlyRack = st.filter { !refs.containsKey(it.lot) }
                       content.addView(label("대조 결과", 16f, Color.WHITE, true).apply { setPadding(0, dp(8), 0, 0) })
                       content.addView(label("✓ 목록·랙 둘 다: ${st.size - onlyRack.size}개", 14f, GREEN))
-                      content.addView(label("목록에만 있음 (아직 안 찍음): ${onlyList.size}개", 14f, Color.rgb(243, 201, 138), true))
+                      content.addView(label("목록에만 있음 (재고 남았는데 아직 안 찍음): ${onlyList.size}개", 14f, Color.rgb(243, 201, 138), true))
                       for (r in onlyList.take(300)) content.addView(label("· ${r.lot}  ${r.name}  ${shortDate(r.inDate)}  ${r.bl}", 12f, SUB))
                       content.addView(label("랙에만 있음 (목록에 없음): ${onlyRack.size}개", 14f, RED, true).apply { setPadding(0, dp(8), 0, 0) })
                       for (s in onlyRack.take(300)) content.addView(label("· ${s.loc}  ${s.lot}  ${s.name}", 12f, SUB))
@@ -2696,16 +2698,21 @@ jobs:
                       val cBl = colOf("BL", "B/L")
                       val cName = colOf("품명", "품목", "ITEM")
                       val cM = colOf("미터", "(M)", "수량")
+                      val cStock = h.entries.sortedBy { it.key }.firstOrNull { it.value.replace(" ", "").trim() == "재고" }?.key
                       var cDate = h2.entries.sortedBy { it.key }.firstOrNull { it.value.contains("일자") }?.key
                       if (cDate == null) cDate = colOf("입고일", "입고", "일자")
                       val out = ArrayList<RRef>()
+                      val gone = HashSet<String>()   // 재고 0 이하 = 이미 출고된 줄
                       for (r in rows.drop(hIdx + 1)) {
                           val lot = (r[cLot] ?: "").trim().uppercase()
                           if (lot.length < 4 || lot.contains("LOT")) continue
+                          val left = cStock?.let { r[it] }?.trim()?.toDoubleOrNull()
+                          if (left != null && left <= 0.0) { gone.add(lot); continue }
                           out.add(RRef(lot, cName?.let { r[it] } ?: "", cM?.let { r[it] }?.let { if (it.isNotBlank()) "$it M" else "" } ?: "",
                               (cBl?.let { r[it] } ?: "").uppercase(), xlDate(cDate?.let { r[it] } ?: "")))
                       }
-                      applyRefs(out)
+                      gone.removeAll(out.map { it.lot }.toSet())
+                      applyRefs(out, gone)
                   } catch (e: Exception) { toast("엑셀 읽기 실패: ${e.message}") }
               }
 
