@@ -1947,10 +1947,13 @@ jobs:
 
                   root.addView(row(
                       btn("🔦") { torch = !torch; camera?.cameraControl?.enableTorch(torch) }.apply { textSize = 14f },
-                      btn("번호로 찾기", Color.rgb(45, 70, 110)) { findByNumber() }.apply { textSize = 14f },
-                      btn("글자 고르기") { pickFromText() }.apply { textSize = 14f },
-                      btn("직접 입력") { manualAdd() }.apply { textSize = 14f },
-                      weights = floatArrayOf(0.55f, 1.2f, 1f, 1f)
+                      btn("번호로 찾기", Color.rgb(45, 70, 110)) { findByNumber() }.apply { textSize = 15f },
+                      btn("B/L로 찾기", Color.rgb(90, 60, 160)) { findByNumber(byBl = true) }.apply { textSize = 15f },
+                      weights = floatArrayOf(0.55f, 1.2f, 1.2f)
+                  ))
+                  root.addView(row(
+                      btn("글자 고르기") { pickFromText() }.apply { textSize = 14f; minHeight = dp(44) },
+                      btn("직접 입력") { manualAdd() }.apply { textSize = 14f; minHeight = dp(44) }
                   ))
                   if (mode == "in") {
                       root.addView(TextView(this).apply {
@@ -2130,11 +2133,11 @@ jobs:
               }
 
               /** 라벨이 안 읽힐 때: LOT 일부(뒤 4자리 등)로 재고 목록·재고에서 찾기 */
-              private fun findByNumber() {
+              private fun findByNumber(byBl: Boolean = false) {
                   val wasScanning = scanning
                   scanning = false   // 카메라 인식 잠시 멈춤 (입력·목록이 바로 뜨게)
                   val move = scanMode == "move"
-                  val e = field("LOT 숫자 (예: 뒤 4자리)", "").apply {
+                  val e = field(if (byBl) "B/L 숫자 (예: 뒤 4자리)" else "LOT 숫자 (예: 뒤 4자리)", "").apply {
                       inputType = InputType.TYPE_CLASS_NUMBER
                       imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
                   }
@@ -2152,29 +2155,76 @@ jobs:
                       addView(ScrollView(this@RackActivity).apply { addView(list) }, LinearLayout.LayoutParams(-1, dp(330)))
                   }
                   lateinit var dlg: AlertDialog
+                  var selBl = ""
                   var first: (() -> Unit)? = null
                   var hitCount = 0
 
-                  fun item(top: String, sub: String, color: Int, onPick: () -> Unit) {
+                  fun item(top: String, sub: String, color: Int, keep: Boolean = false, onPick: () -> Unit) {
                       list.addView(vbox().apply {
                           background = round(CARD, 10); setPadding(dp(12), dp(8), dp(12), dp(8))
                           addView(label(top, 17f, color, true))
                           if (sub.isNotBlank()) addView(label(sub, 12f, SUB).apply { maxLines = 1 })
                           isClickable = true
-                          setOnClickListener { dlg.dismiss(); onPick() }
+                          setOnClickListener { if (!keep) dlg.dismiss(); onPick() }
                       }, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(3), 0, dp(3)) })
+                  }
+
+                  lateinit var drawRef: () -> Unit
+                  fun blDraw(q: String) {
+                      val placed = stock().map { it.lot }.toHashSet()
+                      val inBatch = batchItems().map { it.lot }.toHashSet()
+                      // 이동: 재고에서 / 입고: 사무실 목록에서
+                      val pool: List<Triple<String, String, String>> =   // bl, lot, 설명
+                          if (move) stock().map { Triple(it.bl.uppercase(), it.lot, "📍${it.loc} · ${it.name}") }
+                          else refs.values.map { Triple(it.bl.uppercase(), it.lot, "${it.name} · ${shortDate(it.inDate)}") }
+                      if (selBl.isEmpty()) {
+                          val groups = pool.filter { it.first.isNotBlank() && it.first.contains(q) }.groupBy { it.first }.toSortedMap()
+                          hitCount = 0
+                          info.text = when {
+                              !move && refs.isEmpty() -> "재고 목록이 비어 있어요"
+                              groups.isEmpty() -> "'$q' 들어간 B/L 없음"
+                              else -> "B/L ${groups.size}개 · 눌러서 열기"
+                          }
+                          for ((bl, rows) in groups) {
+                              val left = if (move) rows.size else rows.count { it.second !in placed && it.second !in inBatch }
+                              item("📦 $bl", if (move) "재고 ${rows.size}개" else "목록 ${rows.size}개 · 안 찍은 것 ${left}개", Color.WHITE, keep = true) { selBl = bl; drawRef() }
+                          }
+                          if (groups.size == 1) { selBl = groups.firstKey(); drawRef() }
+                          return
+                      }
+                      val rows = pool.filter { it.first == selBl }.sortedBy { it.second }
+                      item("← B/L 다시 고르기", selBl, Color.rgb(120, 190, 255), keep = true) { selBl = ""; drawRef() }
+                      fun add(lot: String) {
+                          lastAddKey = ""
+                          if (move) { stock().firstOrNull { it.lot == lot }?.let { h -> addMove(Parsed(h.mk, h.lot, h.name, h.qty, h.size)) } }
+                          else { val r = refs[lot] ?: return; addInbound(Parsed(mkOf(r.lot), r.lot, r.name, r.qty)) }
+                      }
+                      val todo = if (move) rows.filter { r -> moveSel.none { id -> items.firstOrNull { it.id == id }?.lot == r.second } }
+                                 else rows.filter { it.second !in placed && it.second !in inBatch }
+                      info.text = "$selBl · ${rows.size}개 · 남은 ${todo.size}개"
+                      if (todo.size > 1) item("⤓ 남은 ${todo.size}개 전부 넣기", "", GREEN) { todo.forEach { add(it.second) } }
+                      for (r in rows) {
+                          val done = r.second !in todo.map { it.second }
+                          val tag = if (!done) "" else if (move) "  [선택됨]" else if (r.second in inBatch) "  [이미 찍음]" else "  [재고에 있음]"
+                          item(r.second + tag, r.third, if (done) DIM else Color.WHITE, keep = done || move || mkOf(r.second) != "Hengtong") {
+                              if (done) return@item
+                              if (!move && mkOf(r.second) == "Hengtong") { val rf = refs[r.second] ?: return@item; textDialog("사이즈 (소재 사양)", "Ø", false) { sz -> lastAddKey = ""; addInbound(Parsed("Hengtong", rf.lot, rf.name, rf.qty, sz)) } }
+                              else { add(r.second); drawRef() }
+                          }
+                      }
                   }
 
                   fun draw() {
                       list.removeAllViews(); first = null; hitCount = 0
                       val q = e.text.toString().trim().uppercase().replace(" ", "")
-                      if (q.length < 2) { info.text = "2자리 이상 누르면 바로 아래에 떠요"; return }
+                      if (q.length < 2) { selBl = ""; info.text = "2자리 이상 누르면 바로 아래에 떠요"; return }
+                      if (byBl) { blDraw(q); return }
                       if (move) {
                           val hits = stock().filter { it.lot.uppercase().contains(q) }.sortedBy { locSortKey(it.loc) }
                           hitCount = hits.size
                           info.text = if (hits.isEmpty()) "재고에 '$q' 없음" else "${hits.size}개 · 눌러서 선택"
                           for (h in hits.take(60)) {
-                              val act: () -> Unit = { lastAddKey = ""; addMove(Parsed(h.mk, h.lot, h.name, h.qty, h.size)) }
+                              val act = { lastAddKey = ""; addMove(Parsed(h.mk, h.lot, h.name, h.qty, h.size)) }
                               if (first == null) first = act
                               item(h.lot, "📍${h.loc} · ${h.name}", Color.WHITE, act)
                           }
@@ -2192,7 +2242,7 @@ jobs:
                           for (r in hits.take(60)) {
                               val done = r.lot in inBatch || r.lot in placed
                               val tag = if (r.lot in inBatch) "  [이미 찍음]" else if (r.lot in placed) "  [재고에 있음]" else ""
-                              val act: () -> Unit = {
+                              val act = {
                                   val mk = mkOf(r.lot)
                                   lastAddKey = ""
                                   if (mk == "Hengtong") textDialog("사이즈 (소재 사양)", "Ø", false) { sz -> lastAddKey = ""; addInbound(Parsed(mk, r.lot, r.name, r.qty, sz)) }
@@ -2205,6 +2255,7 @@ jobs:
                       item("✎ 직접 입력 ($q)", "", GREEN) { manualAdd(q) }
                   }
 
+                  drawRef = { draw() }
                   toggle.setOnClickListener {
                       abc = !abc
                       e.inputType = if (abc) InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS else InputType.TYPE_CLASS_NUMBER
@@ -2215,7 +2266,7 @@ jobs:
                   e.addTextChangedListener(object : android.text.TextWatcher {
                       override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
                       override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-                      override fun afterTextChanged(s: android.text.Editable?) { draw() }
+                      override fun afterTextChanged(s: android.text.Editable?) { selBl = ""; draw() }
                   })
                   // 완료 키: 결과가 하나면 바로 선택
                   e.setOnEditorActionListener { _, _, _ ->
@@ -2223,7 +2274,7 @@ jobs:
                       if (hitCount == 1 && f != null) { dlg.dismiss(); f() }
                       true
                   }
-                  dlg = AlertDialog.Builder(this).setTitle("번호로 찾기").setView(box)
+                  dlg = AlertDialog.Builder(this).setTitle(if (byBl) "B/L로 찾기" else "번호로 찾기").setView(box)
                       .setNegativeButton("닫기", null).create()
                   dlg.setOnDismissListener { if (screen == "scan" && wasScanning) scanning = true }
                   dlg.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
