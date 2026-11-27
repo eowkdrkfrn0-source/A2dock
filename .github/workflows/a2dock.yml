@@ -109,7 +109,7 @@ jobs:
               <uses-permission android:name="android.permission.CAMERA" />
               <uses-feature android:name="android.hardware.camera" android:required="false" />
               <application
-                  android:label="A2 도크"
+                  android:label="재고관리"
                   android:icon="@drawable/ic_launcher"
                   android:roundIcon="@drawable/ic_launcher"
                   android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
@@ -125,7 +125,7 @@ jobs:
                   </activity>
                   <activity
                       android:name=".RackActivity"
-                      android:label="A2 랙 재고"
+                      android:label="한울 현황"
                       android:exported="true"
                       android:launchMode="singleTop"
                       android:screenOrientation="portrait"
@@ -162,36 +162,44 @@ jobs:
           cat > 'app/src/main/res/drawable/ic_launcher_bg.xml' <<'TALLY_EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-              <gradient android:angle="315" android:startColor="#1E40AF" android:endColor="#0D9488" android:type="linear" />
+              <gradient android:angle="315" android:startColor="#2563EB" android:endColor="#0D9488" android:type="linear" />
           </shape>
           TALLY_EOF
           mkdir -p "app/src/main/res/drawable"
           cat > 'app/src/main/res/drawable/ic_launcher_fg.xml' <<'TALLY_EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-              <path android:fillColor="#33000000" android:pathData="M30,30h22v50h-22z M56,30h22v50h-22z" />
-              <path android:fillColor="#1D6FD1" android:pathData="M30,28h22v14h-22z" />
-              <path android:fillColor="#00000000" android:strokeColor="#6EE28C" android:strokeWidth="2" android:pathData="M31,45h20v12h-20z" />
-              <path android:fillColor="#F59E0B" android:pathData="M30,60h22v18h-22z" />
-              <path android:fillColor="#10AA96" android:pathData="M56,28h22v24h-22z" />
-              <path android:fillColor="#BE185D" android:pathData="M56,55h22v10h-22z" />
-              <path android:fillColor="#7C3AED" android:pathData="M56,68h22v10h-22z" />
-              <path android:fillColor="#FFFFFF" android:pathData="M28,82h52v3h-52z" />
+              <path android:fillColor="#33000000" android:pathData="M54,31 L85,51 L81,51 L81,85 L29,85 L29,51 L25,51 Z" />
+              <path android:fillColor="#FFFFFF" android:pathData="M54,28 L84,48 L80,48 L80,82 L28,82 L28,48 L24,48 Z" />
+              <path android:fillColor="#1E3A8A" android:pathData="M35,55h38v27h-38z" />
+              <path android:fillColor="#2B4FA8" android:pathData="M35,58h38v1.6h-38z M35,62h38v1.6h-38z" />
+              <path android:fillColor="#F59E0B" android:pathData="M39,68h14v14h-14z" />
+              <path android:fillColor="#B45309" android:pathData="M45,68h2v5h-2z" />
+              <path android:fillColor="#14B8A6" android:pathData="M55,68h14v14h-14z" />
+              <path android:fillColor="#0F766E" android:pathData="M61,68h2v5h-2z" />
+              <path android:fillColor="#FB7185" android:pathData="M47,57h14v11h-14z" />
+              <path android:fillColor="#BE123C" android:pathData="M53,57h2v4h-2z" />
+              <path android:fillColor="#22C55E" android:strokeColor="#FFFFFF" android:strokeWidth="3" android:pathData="M79,66 a11,11 0 1,0 0.01,0 Z" />
+              <path android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="3.2" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M73.5,77.5 l4,4 l7.5,-8" />
           </vector>
           TALLY_EOF
           mkdir -p "app/src/main/res/drawable"
           cat > 'app/src/main/res/drawable/ic_launcher.xml' <<'TALLY_EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-              <path android:fillColor="#1E40AF" android:pathData="M54,4 a50,50 0 1,0 0.01,0 Z" />
-              <path android:fillColor="#33000000" android:pathData="M30,30h22v50h-22z M56,30h22v50h-22z" />
-              <path android:fillColor="#1D6FD1" android:pathData="M30,28h22v14h-22z" />
-              <path android:fillColor="#00000000" android:strokeColor="#6EE28C" android:strokeWidth="2" android:pathData="M31,45h20v12h-20z" />
-              <path android:fillColor="#F59E0B" android:pathData="M30,60h22v18h-22z" />
-              <path android:fillColor="#10AA96" android:pathData="M56,28h22v24h-22z" />
-              <path android:fillColor="#BE185D" android:pathData="M56,55h22v10h-22z" />
-              <path android:fillColor="#7C3AED" android:pathData="M56,68h22v10h-22z" />
-              <path android:fillColor="#FFFFFF" android:pathData="M28,82h52v3h-52z" />
+              <path android:fillColor="#1D5FC9" android:pathData="M54,4 a50,50 0 1,0 0.01,0 Z" />
+              <path android:fillColor="#33000000" android:pathData="M54,31 L85,51 L81,51 L81,85 L29,85 L29,51 L25,51 Z" />
+              <path android:fillColor="#FFFFFF" android:pathData="M54,28 L84,48 L80,48 L80,82 L28,82 L28,48 L24,48 Z" />
+              <path android:fillColor="#1E3A8A" android:pathData="M35,55h38v27h-38z" />
+              <path android:fillColor="#2B4FA8" android:pathData="M35,58h38v1.6h-38z M35,62h38v1.6h-38z" />
+              <path android:fillColor="#F59E0B" android:pathData="M39,68h14v14h-14z" />
+              <path android:fillColor="#B45309" android:pathData="M45,68h2v5h-2z" />
+              <path android:fillColor="#14B8A6" android:pathData="M55,68h14v14h-14z" />
+              <path android:fillColor="#0F766E" android:pathData="M61,68h2v5h-2z" />
+              <path android:fillColor="#FB7185" android:pathData="M47,57h14v11h-14z" />
+              <path android:fillColor="#BE123C" android:pathData="M53,57h2v4h-2z" />
+              <path android:fillColor="#22C55E" android:strokeColor="#FFFFFF" android:strokeWidth="3" android:pathData="M79,66 a11,11 0 1,0 0.01,0 Z" />
+              <path android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="3.2" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M73.5,77.5 l4,4 l7.5,-8" />
           </vector>
           TALLY_EOF
           mkdir -p "app/src/main/res/drawable-anydpi-v26"
@@ -384,7 +392,7 @@ jobs:
                       setOnClickListener { showMain() }
                   }, LinearLayout.LayoutParams(dp(48), dp(48)))
                   addView(label("  $title", 22f, Color.WHITE, true), LinearLayout.LayoutParams(0, -2, 1f))
-                  addView(label("A2 도크", 12f, Color.WHITE, true).apply {
+                  addView(label("한화오션", 12f, Color.WHITE, true).apply {
                       background = round(color, 20); setPadding(dp(10), dp(4), dp(10), dp(4))
                   })
               }
@@ -418,7 +426,7 @@ jobs:
                           .apply { cornerRadius = dp(16).toFloat() }
                       setPadding(dp(16), dp(12), dp(16), dp(12))
                   }
-                  head.addView(label("A2 도크", 22f, Color.WHITE, true))
+                  head.addView(label("한화오션 현황", 22f, Color.WHITE, true))
                   head.addView(label("B/L ${bls.size}건 · ${bls.sumOf { it.second.pallets }}파레트 · 빈자리 ${gapL + gapR}줄", 13f, Color.argb(225, 255, 255, 255)))
                   if (Fb.enabled) head.addView(label(when {
                       dockErr.isNotEmpty() -> "⚠ 공유 실패: $dockErr"
@@ -437,14 +445,20 @@ jobs:
                       val used = l.filter { !it.gap }.sumOf { it.lines }; val g = l.filter { it.gap }.sumOf { it.lines }
                       return label((if (side == 'L') "◀ 좌측" else "우측 ▶") + "  ${used}줄 · 빈 ${g}", 13f, SUB, true).apply { gravity = Gravity.CENTER }
                   }
-                  root.addView(row(sideTitle('L'), sideTitle('R')))
+                  root.addView(LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(4), 0, 0)
+                      addView(sideTitle('L'), LinearLayout.LayoutParams(0, -2, 1f))
+                      addView(label("통로", 12f, Color.rgb(250, 204, 21), true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(dp(42), -2))
+                      addView(sideTitle('R'), LinearLayout.LayoutParams(0, -2, 1f))
+                  })
 
                   // 배치도 (스크롤)
                   val cols = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(4), dp(4), dp(4), dp(4)) }
                   val colL = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
                   val colR = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-                  cols.addView(colL, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = dp(4) })
-                  cols.addView(colR, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(4) })
+                  cols.addView(colL, LinearLayout.LayoutParams(0, -2, 1f))
+                  cols.addView(AisleView(this), LinearLayout.LayoutParams(dp(30), -1).apply { setMargins(dp(6), 0, dp(6), 0) })
+                  cols.addView(colR, LinearLayout.LayoutParams(0, -2, 1f))
                   val sv = ScrollView(this).apply { background = round(Color.rgb(22, 26, 33), 12); addView(cols) }
                   mainScroll = sv
                   root.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f).apply { setMargins(0, dp(4), 0, dp(6)) })
@@ -484,6 +498,59 @@ jobs:
                   withTabs(root, "dock")
               }
 
+              /** 입고·출고 화면의 작은 도크 지도 (좌측 | 통로 | 우측) */
+              private fun dockMini(selSlot: Slot?, insSide: Char?, insGap: Slot?, insTop: Boolean, insLines: Int,
+                                   onSlot: ((Slot) -> Unit)?, onSide: ((Char) -> Unit)?): LinearLayout {
+                  val box = card()
+                  box.addView(row(
+                      label("◀ 좌측", 12f, SUB, true).apply { gravity = Gravity.CENTER },
+                      label("도크 지도", 12f, Color.rgb(250, 204, 21), true).apply { gravity = Gravity.CENTER },
+                      label("우측 ▶", 12f, SUB, true).apply { gravity = Gravity.CENTER }
+                  ))
+                  val U = 15
+                  fun ghost(n: Int) = label("＋ 여기 ${n}줄", 11f, Color.WHITE, true).apply {
+                      gravity = Gravity.CENTER; setPadding(0, 0, 0, 0)
+                      background = round(Color.argb(110, 20, 184, 166), 6, TEAL)
+                      layoutParams = LinearLayout.LayoutParams(-1, dp(U * maxOf(1, n))).apply { bottomMargin = dp(2) }
+                  }
+                  fun laneCol(side: Char): LinearLayout {
+                      val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(3), dp(3), dp(3), dp(3)) }
+                      val on = insSide == side
+                      col.background = round(Color.rgb(22, 26, 33), 8, if (on) TEAL else null)
+                      val l = lane(side)
+                      if (on && insGap == null && insTop) col.addView(ghost(insLines))
+                      for (s in l) {
+                          if (on && insGap === s) {
+                              col.addView(ghost(insLines))
+                              if (insLines < s.lines) col.addView(label("빈 ${s.lines - insLines}", 10f, GREEN).apply {
+                                  gravity = Gravity.CENTER; setPadding(0, 0, 0, 0); background = round(Color.argb(18, 110, 226, 140), 5, GREEN, dashed = true)
+                                  layoutParams = LinearLayout.LayoutParams(-1, dp(U * (s.lines - insLines))).apply { bottomMargin = dp(2) }
+                              })
+                              continue
+                          }
+                          val selOn = s === selSlot
+                          val v = label(if (s.gap) "빈 ${s.lines}" else s.bl.takeLast(7) + " ${s.pallets}P", 10f, if (s.gap) GREEN else Color.WHITE, selOn).apply {
+                              gravity = Gravity.CENTER; setPadding(dp(2), 0, dp(2), 0); maxLines = 1
+                              background = if (s.gap) round(Color.argb(18, 110, 226, 140), 5, GREEN, dashed = true)
+                                           else round(colorOf(s.bl), 5, if (selOn) GOLD else null)
+                              if (selSlot != null && !selOn && !s.gap) alpha = 0.45f
+                              if (onSlot != null) setOnClickListener { onSlot(s) }
+                          }
+                          col.addView(v, LinearLayout.LayoutParams(-1, dp(U * s.lines)).apply { bottomMargin = dp(2) })
+                      }
+                      if (on && insGap == null && !insTop) col.addView(ghost(insLines))
+                      if (l.isEmpty() && !on) col.addView(label("비어 있음", 10f, Color.rgb(107, 115, 133)).apply { gravity = Gravity.CENTER; setPadding(0, dp(10), 0, dp(10)) })
+                      if (onSide != null) col.setOnClickListener { onSide(side) }
+                      return col
+                  }
+                  val cols = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(6), 0, 0) }
+                  cols.addView(laneCol('L'), LinearLayout.LayoutParams(0, -2, 1f))
+                  cols.addView(AisleView(this, true), LinearLayout.LayoutParams(dp(24), -1).apply { setMargins(dp(5), 0, dp(5), 0) })
+                  cols.addView(laneCol('R'), LinearLayout.LayoutParams(0, -2, 1f))
+                  box.addView(cols)
+                  return box
+              }
+
               private fun slotView(s: Slot): LinearLayout = LinearLayout(this).apply {
                   orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL
                   setPadding(dp(8), 0, dp(8), 0)
@@ -493,7 +560,11 @@ jobs:
                       addView(label("빈자리 ${s.lines}줄", 13f, GREEN, true).apply { gravity = Gravity.CENTER; setPadding(0, 0, 0, 0) })
                       if (s.memo.isNotBlank() && s.lines >= 2) addView(label(s.memo, 11f, SUB).apply { gravity = Gravity.CENTER; setPadding(0, 0, 0, 0); maxLines = 1 })
                   } else {
-                      background = round(colorOf(s.bl), 8)
+                      val c0 = colorOf(s.bl)
+                      val lt = Color.rgb(minOf(255, Color.red(c0) + 40), minOf(255, Color.green(c0) + 40), minOf(255, Color.blue(c0) + 40))
+                      background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(lt, c0)).apply {
+                          cornerRadius = dp(10).toFloat(); setStroke(dp(1), Color.argb(70, 255, 255, 255))
+                      }
                       if (s.lines >= 2) {
                           addView(label(s.bl, 13f, Color.WHITE, true).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
                           addView(label("${s.lines}줄 · ${s.pallets}P" + (if (s.memo.isNotBlank()) " · ${s.memo}" else ""), 12f, Color.argb(230, 255, 255, 255)).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
@@ -593,6 +664,7 @@ jobs:
                   var target: Slot? = presetGap           // null = 맨 아래, 또는 빈자리
                   var atTop = false
                   var lines = 1
+                  var redrawPos: () -> Unit = {}
                   val root = vbox()
                   root.addView(topBar("입고", TEAL))
                   val c1 = card()
@@ -605,9 +677,9 @@ jobs:
                   c1.addView(label("몇 줄 차지?", 13f, SUB))
                   val tvLines = label("1 줄", 30f, Color.WHITE, true).apply { gravity = Gravity.CENTER }
                   c1.addView(row(
-                      btn("−") { if (lines > 1) { lines--; tvLines.text = "$lines 줄" } }.apply { textSize = 26f },
+                      btn("−") { if (lines > 1) { lines--; tvLines.text = "$lines 줄"; redrawPos() } }.apply { textSize = 26f },
                       tvLines,
-                      btn("＋") { lines++; tvLines.text = "$lines 줄" }.apply { textSize = 26f }
+                      btn("＋") { lines++; tvLines.text = "$lines 줄"; redrawPos() }.apply { textSize = 26f }
                   ))
                   c1.addView(label("메모 (선택)", 13f, SUB))
                   val eM = field("화주, 품명 등", "").apply { inputType = InputType.TYPE_CLASS_TEXT }
@@ -618,6 +690,10 @@ jobs:
                   root.addView(c2)
                   fun drawPos() {
                       c2.removeAllViews()
+                      c2.addView(dockMini(null, side, target, atTop, lines,
+                          onSlot = { s -> if (s.gap) { side = sideOf(s); target = s; atTop = false; drawPos() } },
+                          onSide = { sd -> if (sd != side) { side = sd; target = null; atTop = false; drawPos() } }))
+                      c2.addView(label("빈자리(초록 점선)나 좌·우를 눌러도 돼요", 11f, Color.rgb(107, 115, 133)).apply { gravity = Gravity.CENTER })
                       c2.addView(label("공간", 13f, SUB))
                       c2.addView(row(
                           btn(if (side == 'L') "✔ ◀ 좌측" else "◀ 좌측", if (side == 'L') TEAL else GREY_BTN) { if (side != 'L') { side = 'L'; target = null; atTop = false; drawPos() } },
@@ -637,6 +713,7 @@ jobs:
                       c2.addView(btn((if (atTop) "✔ " else "") + "맨 아래", if (atTop) TEAL else GREY_BTN) { target = null; atTop = true; drawPos() })
                   }
                   drawPos()
+                  redrawPos = { drawPos() }
 
                   root.addView(btn("입고 등록", TEAL) {
                       val bl = eBl.text.toString().trim().uppercase().replace(" ", "")
@@ -690,7 +767,8 @@ jobs:
                   fun drawOpt() {
                       opt.removeAllViews()
                       val s = sel
-                      if (s == null) { opt.addView(label("나갈 B/L을 고르세요", 14f, SUB)); return }
+                      opt.addView(dockMini(s, null, null, false, 0, onSlot = { x -> if (!x.gap) { sel = x; partial = false; drawOpt() } }, onSide = null))
+                      if (s == null) { opt.addView(label("나갈 B/L을 고르세요 (지도에서 눌러도 돼요)", 14f, SUB)); return }
                       val side = sideOf(s)
                       opt.addView(label("${s.bl} · ${sideName(side)} · ${s.lines}줄 · ${s.pallets}P", 16f, Color.WHITE, true))
                       opt.addView(row(
@@ -858,7 +936,7 @@ jobs:
                   screen = "home"
                   val root = vbox()
                   val head = heroHead()
-                  head.addView(label("A2 도크", 24f, Color.WHITE, true))
+                  head.addView(label("재고관리", 24f, Color.WHITE, true))
                   val user = Fb.userName(this)
                   head.addView(label(SimpleDateFormat("yyyy.MM.dd (E)", Locale.KOREA).format(Date()) + if (user.isNotBlank()) "  ·  👤 $user" else "", 13f, Color.argb(225, 255, 255, 255)))
                   if (Fb.enabled) head.addView(label(shareText(), 12f, if (dockErr.isNotEmpty()) Color.rgb(255, 200, 190) else Color.argb(210, 200, 255, 220)))
@@ -868,7 +946,7 @@ jobs:
                   val bls = allBl()
                   val gapL = left.filter { it.gap }.sumOf { it.lines }; val gapR = right.filter { it.gap }.sumOf { it.lines }
                   val useL = left.filter { !it.gap }.sumOf { it.lines }; val useR = right.filter { !it.gap }.sumOf { it.lines }
-                  root.addView(section("▦  도크"))
+                  root.addView(section("▦  한화오션 현황"))
                   val dc = card()
                   dc.addView(row(Ui.stat(this, "${bls.size}", "B/L"), Ui.stat(this, "${bls.sumOf { it.second.pallets }}", "파레트"), Ui.stat(this, "${gapL + gapR}", "빈자리 줄", GREEN)))
                   dc.addView(row(
@@ -884,13 +962,13 @@ jobs:
 
                   // 랙 재고
                   val rk = readRack()
-                  root.addView(section("▤  랙 재고"))
+                  root.addView(section("▤  한울 현황"))
                   val rc = card()
                   rc.addView(row(Ui.stat(this, "${rk.total}", "총 재고"), Ui.stat(this, "${rk.a}", "A랙"), Ui.stat(this, "${rk.b}", "B랙"), Ui.stat(this, "${rk.f}", "평치")))
                   if (rk.batch.isNotEmpty()) rc.addView(label("● 입고 진행 중 · ${rk.batch} · 적치 대기 ${rk.wait}개", 14f, Color.rgb(120, 190, 255), true))
                   if (rk.noBl > 0) rc.addView(label("⚠ B/L 없는 재고 ${rk.noBl}개", 14f, GOLD, true))
-                  rc.addView(btn("랙 재고 열기 ›", PRIMARY) { openTab("rack") })
-                  rc.addView(label("이 폰에 저장된 기준 · 랙 재고를 열면 최신으로 바뀌어요", 11f, Ui.DIM).apply { gravity = Gravity.CENTER })
+                  rc.addView(btn("한울 현황 열기 ›", PRIMARY) { openTab("rack") })
+                  rc.addView(label("이 폰에 저장된 기준 · 한울 현황을 열면 최신으로 바뀌어요", 11f, Ui.DIM).apply { gravity = Gravity.CENTER })
                   root.addView(rc)
 
                   // 오늘 작업
@@ -932,7 +1010,7 @@ jobs:
                   val seg = LinearLayout(this).apply {
                       orientation = LinearLayout.HORIZONTAL; background = round(CARD, 12); setPadding(dp(4), dp(4), dp(4), dp(4))
                   }
-                  for ((k, n) in listOf("dock" to "▦ 도크", "rack" to "▤ 랙 재고")) {
+                  for ((k, n) in listOf("dock" to "▦ 한화오션", "rack" to "▤ 한울")) {
                       val on = histTab == k
                       seg.addView(Button(this).apply {
                           text = n; textSize = 16f; isAllCaps = false; setTypeface(typeface, Typeface.BOLD)
@@ -964,7 +1042,7 @@ jobs:
                       }
                   } else {
                       val hs = readRack().hist.asReversed().take(500)
-                      root.addView(label("최근 ${hs.size}건  ·  엑셀은 랙 재고 → 엑셀 내보내기", 12f, SUB).apply { setPadding(dp(4), dp(4), 0, 0) })
+                      root.addView(label("최근 ${hs.size}건  ·  엑셀은 한울 현황 → 엑셀 내보내기", 12f, SUB).apply { setPadding(dp(4), dp(4), 0, 0) })
                       if (hs.isEmpty()) root.addView(label("기록이 없습니다", 15f, SUB).apply { gravity = Gravity.CENTER; setPadding(0, dp(30), 0, 0) })
                       var lastDay = ""
                       for (h in hs) {
@@ -1950,7 +2028,7 @@ jobs:
                       setPadding(dp(16), dp(14), dp(16), dp(14))
                   }
                   val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-                  top.addView(label("랙 재고", 22f, Color.WHITE, true), LinearLayout.LayoutParams(0, -2, 1f))
+                  top.addView(label("한울 현황", 22f, Color.WHITE, true), LinearLayout.LayoutParams(0, -2, 1f))
                   top.addView(label("👤 ${userName()}", 13f, Color.WHITE, true).apply { background = round(Color.argb(60, 0, 0, 0), 14); setPadding(dp(10), dp(4), dp(10), dp(4)) })
                   head.addView(top)
                   val a = st.count { it.loc.startsWith("A") }; val b = st.count { it.loc.startsWith("B") }; val f = st.count { it.loc == "평치" }
@@ -2954,7 +3032,7 @@ jobs:
                   screen = "out"
                   val content = vbox()
                   content.addView(big(btn("📷 출고 캡처 불러오기", RED) { imgPurpose = "out"; pickImages.launch("image/*") }, 60, 17f))
-                  content.addView(label("카톡에서 캡처를 '공유 → A2 도크'로 보내도 돼요", 12f, SUB))
+                  content.addView(label("카톡에서 캡처를 '공유 → 재고관리'로 보내도 돼요", 12f, SUB))
                   if (outRows.isEmpty()) {
                       content.addView(label("출고 목록이 없어요", 14f, DIM).apply { gravity = Gravity.CENTER; setPadding(0, dp(20), 0, 0) })
                   } else {
@@ -4358,8 +4436,8 @@ jobs:
 
               private val TABS = listOf(
                   Triple("home", "⌂", "홈"),
-                  Triple("dock", "▦", "도크"),
-                  Triple("rack", "▤", "랙 재고"),
+                  Triple("dock", "▦", "한화오션"),
+                  Triple("rack", "▤", "한울"),
                   Triple("hist", "☰", "기록")
               )
 
@@ -4403,6 +4481,37 @@ jobs:
                   setPadding(dp(c, 4), dp(c, 10), dp(c, 4), dp(c, 10))
                   addView(TextView(c).apply { text = value; textSize = 22f; gravity = Gravity.CENTER; setTextColor(color); setTypeface(typeface, Typeface.BOLD) })
                   addView(TextView(c).apply { text = name; textSize = 12f; gravity = Gravity.CENTER; setTextColor(SUB) })
+              }
+          }
+
+          /** 도크 가운데 통로 (노란 점선 + "통로") */
+          class AisleView(c: Context, private val small: Boolean = false) : android.view.View(c) {
+              private val d = c.resources.displayMetrics.density
+              private val bg = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(46, 50, 58) }
+              private val edge = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(70, 255, 255, 255); strokeWidth = d }
+              private val line = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.rgb(250, 204, 21); strokeWidth = 2f * d; style = android.graphics.Paint.Style.STROKE
+                  pathEffect = android.graphics.DashPathEffect(floatArrayOf(10f * d, 8f * d), 0f)
+              }
+              private val txt = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.argb(225, 255, 255, 255); textSize = (if (small) 9f else 11f) * d
+                  textAlign = android.graphics.Paint.Align.CENTER; isFakeBoldText = true; letterSpacing = 0.3f
+              }
+              override fun onDraw(cv: android.graphics.Canvas) {
+                  val w = width.toFloat(); val h = height.toFloat()
+                  cv.drawRoundRect(android.graphics.RectF(0f, 0f, w, h), 6f * d, 6f * d, bg)
+                  cv.drawLine(1f, 0f, 1f, h, edge); cv.drawLine(w - 1f, 0f, w - 1f, h, edge)
+                  cv.drawLine(w / 2f, 3f * d, w / 2f, h - 3f * d, line)
+                  val step = (if (small) 140f else 240f) * d
+                  var y = minOf(h / 2f, (if (small) 50f else 90f) * d)
+                  while (y < h - 10f * d) {
+                      val half = txt.textSize * 1.6f
+                      cv.drawRect(w / 2f - txt.textSize * 0.8f, y - half, w / 2f + txt.textSize * 0.8f, y + half, bg)
+                      cv.save(); cv.rotate(-90f, w / 2f, y)
+                      cv.drawText("통로", w / 2f, y + txt.textSize / 3f, txt)
+                      cv.restore()
+                      y += step
+                  }
               }
           }
           TALLY_EOF
