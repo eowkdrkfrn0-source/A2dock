@@ -2080,8 +2080,9 @@ jobs:
                   if (lastAddKey.isNotEmpty() && k != lastAddKey && now - lastAddAt < 1500) return
                   // ② 글자 인식(바코드 아님)인데 목록에 없는 번호 → 더 여러 번 맞아야 넣고, 방금 넣은 것과 1~2글자만 다르면 오인식으로 보고 무시
                   if (!sure && refs.isNotEmpty() && !refs.containsKey(p.lot)) {
-                      if (candHits < 4) return
-                      if (now - lastAddAt < 20000 && nearLot(p.lot, lastAddLot)) return
+                      if (candHits < 3) return
+                      // 방금 넣은 것과 1글자만 다르고 아직 3초 안이면 같은 라벨 오인식으로 봄 (연속 번호는 3초 지나면 정상으로 들어감)
+                      if (now - lastAddAt < 3000 && nearLot(p.lot, lastAddLot)) return
                   }
                   lastAddKey = k; lastAddAt = now; lastAddLot = p.lot
                   if (scanMode == "move") addMove(p) else addInbound(p)
@@ -2090,7 +2091,7 @@ jobs:
               private var lastAddLot = ""
               private fun nearLot(a: String, b: String): Boolean {
                   if (a.length != b.length || a == b) return false
-                  return a.indices.count { a[it] != b[it] } <= 2
+                  return a.indices.count { a[it] != b[it] } <= 1
               }
 
               private fun addInbound(p: Parsed) {
@@ -2113,7 +2114,7 @@ jobs:
                   items.add(it)
                   save()
                   buzz(120)
-                  showOverlay(it.seq, it.name.ifBlank { it.lot }, "파레트에 ${it.seq} 쓰세요 · ${it.lot}", mkColor(it.mk))
+                  showOverlay(it.seq, it.name.ifBlank { it.lot }, "파레트에 ${it.seq} 쓰세요 · ${it.lot}" + if (refs.isNotEmpty() && ref == null) " (목록에 없음)" else "", mkColor(it.mk))
                   fillScanList()
               }
 
@@ -2338,8 +2339,11 @@ jobs:
                       c.addView(numBadge(cur.seq, mkColor(cur.mk), 84))
                       val t = vbox().apply { setPadding(dp(14), 0, 0, 0) }
                       t.addView(label("지금 올리는 파레트", 13f, SUB))
-                      t.addView(label(cur.name.ifBlank { cur.mk }, 21f, Color.WHITE, true))
-                      t.addView(label(listOf(cur.lot, cur.size, cur.qty).filter { it.isNotBlank() }.joinToString(" · "), 13f, SUB))
+                      t.addView(label(cur.lot, 28f, Color.WHITE, true).apply { maxLines = 1; isSingleLine = true; ellipsize = android.text.TextUtils.TruncateAt.START })
+                      t.addView(label(cur.name.ifBlank { cur.mk }, 15f, Color.rgb(200, 206, 218)).apply { maxLines = 2 })
+                      val extra = listOf(cur.size, cur.qty).filter { it.isNotBlank() }.joinToString(" · ")
+                      if (extra.isNotBlank()) t.addView(label(extra, 13f, SUB))
+                      if (refs.isNotEmpty() && !refs.containsKey(cur.lot)) t.addView(label("목록에 없음 · 직접 인식", 12f, Color.rgb(243, 201, 138), true))
                       c.addView(t, LinearLayout.LayoutParams(0, -2, 1f))
                       content.addView(c)
                       content.addView(TextView(this).apply {
