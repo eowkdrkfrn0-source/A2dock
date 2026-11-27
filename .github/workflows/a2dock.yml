@@ -378,11 +378,13 @@ jobs:
                   Gate.resume(this)
                   startDock()
                   if (screen == "home" || screen == "hist") refreshTab()
+                  handler.removeCallbacks(autoTick); handler.postDelayed(autoTick, 3000)
               }
 
 
               override fun onPause() {
                   Gate.pause(this)
+                  handler.removeCallbacks(autoTick)
                   dockGen++
                   super.onPause()
               }
@@ -500,7 +502,7 @@ jobs:
                   }
                   head.addView(label("한화오션 현황", 22f, Color.WHITE, true))
                   plans.filter { planKey(it) >= todayKey() }.sortedBy { planKey(it) }.take(3).forEach { pl ->
-                      head.addView(label("🚚 " + planSummary(pl, true).joinToString(" / ") + "  ·  " + pl.bl.takeLast(8) + (if (pl.dest.isNotBlank()) " → ${pl.dest}" else ""), 13f, Color.rgb(255, 220, 150), true).apply {
+                      head.addView(label("🚚 " + slotBadge(pl) + "  ·  " + pl.bl.takeLast(8) + (if (pl.dest.isNotBlank()) " → ${pl.dest}" else ""), 13f, Color.rgb(255, 220, 150), true).apply {
                           maxLines = 1; setOnClickListener { showPlans() }
                       })
                   }
@@ -617,6 +619,53 @@ jobs:
                       val dd = if (short) d.replace(Regex("\\(.\\)"), "") else d
                       dd + " " + listOfNotNull(if (am > 0) "오전 ${am}대" else null, if (pm > 0) "오후 ${pm}대" else null).joinToString(if (short) "·" else " · ")
                   }
+
+              /** 오늘부터 며칠 남았는지 */
+              private fun daysLeft(day: String): Int {
+                  val k = dayKey(day); val t = todayKey()
+                  val a = java.util.GregorianCalendar(k / 10000, (k / 100) % 100 - 1, k % 100).timeInMillis
+                  val b = java.util.GregorianCalendar(t / 10000, (t / 100) % 100 - 1, t % 100).timeInMillis
+                  return Math.round((a - b) / 86400000.0).toInt()
+              }
+              private fun relDay(n: Int) = when { n < 0 -> "지남"; n == 0 -> "오늘"; n == 1 -> "내일"; else -> "${n}일 전" }
+
+              /** 배치도용: "12/1(화) 4일 전 오전8·오후8 / 12/2(수) 5일 전 오전8" */
+              private fun slotBadge(p: OutPlan): String =
+                  p.trips.filter { daysLeft(it.day) >= 0 }.groupBy { normDay(it.day) }.toList().sortedBy { dayKey(it.first) }.joinToString(" / ") { (d, ts) ->
+                      val am = ts.filter { it.hour < 12 }.sumOf { it.cars }; val pm = ts.filter { it.hour >= 12 }.sumOf { it.cars }
+                      "$d ${relDay(daysLeft(d))} " + listOfNotNull(if (am > 0) "오전$am" else null, if (pm > 0) "오후$pm" else null).joinToString("·")
+                  }
+
+              private fun blSame(a: String, b: String): Boolean {
+                  val x = a.uppercase().replace(" ", ""); val y = b.uppercase().replace(" ", "")
+                  return x.isNotEmpty() && y.isNotEmpty() && (x == y || x.contains(y) || y.contains(x))
+              }
+
+              /** 출고 일정의 마지막 날 오후 7시가 지나면 그 B/L을 자동 전량 출고 */
+              private fun autoOut() {
+                  if (Fb.enabled && !dockReady) return
+                  val tk = todayKey()
+                  val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                  var n = 0
+                  for (p in plans.toList()) {
+                      val last = p.trips.maxOfOrNull { dayKey(it.day) } ?: continue
+                      if (last > tk || (last == tk && hour < 19)) continue
+                      for (side in listOf('L', 'R')) for (s in lane(side)) if (!s.gap && blSame(s.bl, p.bl)) {
+                          history.add(0, "${now()}|출고|${s.bl}|${s.pallets}|${s.lines}|${sideName(side)}|자동 (출고 일정 끝)|자동")
+                          s.gap = true; s.memo = "${s.bl} 출고 ${now().substring(0, 5)}"; s.bl = ""; s.pallets = 0
+                          n++
+                      }
+                      plans.remove(p)
+                      if (n == 0) n = -1
+                  }
+                  if (n != 0) {
+                      mergeGaps(left); mergeGaps(right)
+                      save()
+                      if (n > 0) toast("출고 일정 끝난 B/L ${n}칸 자동 출고 처리")
+                      refreshTab()
+                  }
+              }
+              private val autoTick = object : Runnable { override fun run() { autoOut(); handler.postDelayed(this, 60_000) } }
 
               private fun plansFor(bl: String): List<OutPlan> {
                   val b = bl.uppercase().replace(" ", "")
@@ -910,8 +959,9 @@ jobs:
                       }
                       val pl = plansFor(s.bl).firstOrNull()
                       if (pl != null) {
-                          foreground = round(Color.TRANSPARENT, 10, Color.rgb(255, 170, 60))
-                          val sm = "🚚 " + planSummary(pl, true).joinToString(" / ")
+                          val dl = pl.trips.map { daysLeft(it.day) }.filter { it >= 0 }.minOrNull() ?: 0
+                          foreground = round(Color.TRANSPARENT, 10, when (dl) { 0 -> Color.rgb(255, 80, 80); 1 -> Color.rgb(255, 140, 40); else -> Color.rgb(255, 190, 80) })
+                          val sm = "🚚 " + slotBadge(pl)
                           if (s.lines >= 2) {
                               addView(label("${s.bl} · ${s.pallets}P", 13f, Color.WHITE, true).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
                               addView(label(sm, 12f, Color.rgb(255, 225, 140), true).apply { setPadding(0, 0, 0, 0); maxLines = 1 })
