@@ -590,6 +590,22 @@ jobs:
                   if (mo < cm - 6) y++ else if (mo > cm + 6) y--
                   return y * 10000 + mo * 100 + d
               }
+              /** OCR 날짜 정리: "12/1(}) 13AI" → "12/1(화) 13시" (요일은 날짜로 다시 계산) */
+              private fun normDay(txt: String): String {
+                  val m = Regex("(\\d{1,2})\\s*[/.]\\s*(\\d{1,2})").find(txt) ?: return txt.trim()
+                  val k = dayKey(m.value)
+                  val cal = java.util.GregorianCalendar(k / 10000, (k / 100) % 100 - 1, k % 100)
+                  val wd = "일월화수목금토"[cal.get(java.util.Calendar.DAY_OF_WEEK) - 1]
+                  return "${m.groupValues[1].toInt()}/${m.groupValues[2].toInt()}($wd)"
+              }
+              private fun normWhen(txt: String): String {
+                  if (txt.isBlank()) return ""
+                  val d = normDay(txt)
+                  val rest = txt.substring((Regex("\\d{1,2}\\s*[/.]\\s*\\d{1,2}").find(txt)?.range?.last ?: -1) + 1)
+                  val h = Regex("(\\d{1,2})\\s*(시|[Aa][Il1]|:|$)").find(rest.replace(Regex("\\([^)]*\\)"), " "))?.groupValues?.get(1)
+                      ?: Regex("\\b(\\d{1,2})\\b").find(rest.replace(Regex("\\([^)]*\\)"), " "))?.groupValues?.get(1)
+                  return if (h != null) "$d ${h.toInt()}시" else d
+              }
               private fun todayKey(): Int { val c = java.util.Calendar.getInstance(); return c.get(java.util.Calendar.YEAR) * 10000 + (c.get(java.util.Calendar.MONTH) + 1) * 100 + c.get(java.util.Calendar.DAY_OF_MONTH) }
               private fun planKey(p: OutPlan) = p.trips.minOfOrNull { dayKey(it.day) } ?: 99999999
               private fun shortDay(day: String) = Regex("\\d{1,2}\\s*[/.]\\s*\\d{1,2}(\\s*\\(.\\))?").find(day)?.value?.replace(" ", "") ?: day
@@ -696,11 +712,11 @@ jobs:
                       p.dest = first("dest"); p.item = first("item"); p.qty = first("qty"); p.wt = first("wt"); p.cbm = first("cbm")
                       p.note = first("note"); p.store = first("store")
                       for ((y, txt) in cells["load"] ?: mutableListOf()) {
-                          val day = Regex("\\d{1,2}\\s*/\\s*\\d{1,2}\\s*(\\([^)]{1,2}\\))?").find(txt)?.value?.replace(" ", "") ?: continue
+                          val day = Regex("\\d{1,2}\\s*/\\s*\\d{1,2}").find(txt)?.value?.let { normDay(it) } ?: continue
                           val hour = Regex("(\\d{1,2})\\s*시").find(txt)?.groupValues?.get(1)?.toIntOrNull()
                               ?: Regex("(\\d{1,2}):\\d{2}").find(txt)?.groupValues?.get(1)?.toIntOrNull() ?: 9
                           val cars = Regex("\\d{1,2}").find(near("cars", y))?.value?.toIntOrNull() ?: 1
-                          p.trips.add(Trip(day, hour, cars, near("unload", y)))
+                          p.trips.add(Trip(day, hour, cars, normWhen(near("unload", y))))
                       }
                   }
                   if (p.bl.isEmpty()) p.bl = dockBl ?: blRe.find(fullText.uppercase())?.value ?: ""
@@ -796,7 +812,9 @@ jobs:
                       val h = field("시", t.hour.toString(), numeric = true); val n = field("대수", t.cars.toString(), numeric = true)
                       val u = field("하차 일시 (선택)", t.unload).apply { inputType = InputType.TYPE_CLASS_TEXT; textSize = 14f }
                       val tr = TR(d, h, n, u)
+                      rowBox.addView(row(label("상차 날짜", 11f, SUB), label("시 (0~23)", 11f, SUB), label("차량 대수", 11f, SUB)))
                       rowBox.addView(row(d, h, n))
+                      rowBox.addView(label("하차 일시", 11f, SUB))
                       rowBox.addView(row(u, btn("빼기", Color.rgb(70, 40, 46)) { trs.remove(tr); tripBox.removeView(rowBox) }))
                       trs.add(tr)
                       tripBox.addView(rowBox, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(4), 0, dp(4)) })
