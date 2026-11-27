@@ -1919,8 +1919,10 @@ jobs:
                   if (noBl > 0) head.addView(label("B/L 없음 ${noBl}개", 13f, Color.rgb(255, 210, 200)))
                   content.addView(head)
 
+                  // 아무것도 안 찍은 빈 입고는 정리
+                  if (curBatch.isNotEmpty() && contBl.isEmpty() && batchItems().isEmpty()) { curBatch = ""; batchSeq = 0; save() }
                   val q = queue()
-                  if (curBatch.isNotEmpty()) {
+                  if (curBatch.isNotEmpty() || contBl.isNotEmpty()) {
                       val c = card(Color.rgb(24, 40, 60), BLUE)
                       c.addView(label(if (contBl.isNotEmpty()) "🚛 컨테이너 입고 중 · B/L $contBl" else "입고 진행 중 · $curBatch", 16f, Color.WHITE, true))
                       c.addView(label("적치 대기 ${q.size}개 · 적치 완료 ${batchItems().count { it.loc.isNotEmpty() }}개 · 입고일 $batchDate", 13f, SUB))
@@ -2515,7 +2517,10 @@ jobs:
                       showHome()
                       return
                   }
-                  if (placed.isEmpty()) { closeBatch(); return }
+                  if (placed.isEmpty()) {   // 찍은 게 없으면 그냥 입고 끝 (다시 찍기 화면으로 안 감)
+                      curBatch = ""; batchSeq = 0; lastPlacedLoc = ""; curId = 0L; contBl = ""
+                      save(); toast("입고 끝"); showHome(); return
+                  }
                   val common = placed.map { it.bl }.filter { it.isNotBlank() }.distinct()
                   val box = vbox().apply { setPadding(dp(20), dp(6), dp(20), 0) }
                   val locs = placed.groupBy { it.loc }.entries.sortedBy { locSortKey(it.key) }
