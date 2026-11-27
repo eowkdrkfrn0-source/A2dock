@@ -1902,57 +1902,120 @@ jobs:
               }
 
               // ======================= 홈 =======================
+              /** 물류센터 앱식 타일 (아이콘 + 이름 + 숫자 배지) */
+              private fun tile(icon: String, name: String, accent: Int, badge: Int = 0, sub: String = "", onClick: () -> Unit): FrameLayout {
+                  val fr = FrameLayout(this)
+                  val box = vbox().apply {
+                      gravity = Gravity.CENTER
+                      background = android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(Color.argb(60, 255, 255, 255)),
+                          round(CARD, 18).apply { setStroke(dp(1), Color.rgb(48, 54, 68)) }, null)
+                      setPadding(dp(8), dp(16), dp(8), dp(14))
+                      addView(TextView(this@RackActivity).apply {
+                          text = icon; textSize = 34f; gravity = Gravity.CENTER
+                          background = round(Color.argb(45, Color.red(accent), Color.green(accent), Color.blue(accent)), 40)
+                          layoutParams = LinearLayout.LayoutParams(dp(68), dp(68)).apply { gravity = Gravity.CENTER_HORIZONTAL }
+                      })
+                      addView(label(name, 16f, Color.WHITE, true).apply { gravity = Gravity.CENTER; setPadding(0, dp(10), 0, 0) })
+                      if (sub.isNotBlank()) addView(label(sub, 11f, SUB).apply { gravity = Gravity.CENTER; maxLines = 1 })
+                      isClickable = true
+                      setOnClickListener { onClick() }
+                  }
+                  fr.addView(box, FrameLayout.LayoutParams(-1, -1))
+                  if (badge > 0) fr.addView(TextView(this).apply {
+                      text = if (badge > 999) "999+" else "$badge"; textSize = 13f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+                      setTypeface(typeface, Typeface.BOLD); background = round(accent, 14); setPadding(dp(8), dp(2), dp(8), dp(2)); minWidth = dp(28)
+                  }, FrameLayout.LayoutParams(-2, dp(28)).apply { gravity = Gravity.TOP or Gravity.END; setMargins(0, dp(8), dp(8), 0) })
+                  return fr
+              }
+
+              private fun tileRow(vararg t: View): LinearLayout = LinearLayout(this).apply {
+                  orientation = LinearLayout.HORIZONTAL
+                  for (v in t) addView(v, LinearLayout.LayoutParams(0, dp(150), 1f).apply { setMargins(dp(5), dp(5), dp(5), dp(5)) })
+                  if (t.size == 1) { } 
+              }
+
+              private fun secTitle(t: String, color: Int): TextView = label(t, 15f, color, true).apply {
+                  gravity = Gravity.CENTER; letterSpacing = 0.15f; setPadding(0, dp(14), 0, dp(2))
+              }
+
               private fun showHome() {
                   screen = "home"
                   val st = stock()
                   val content = vbox()
+                  // 상단 요약
                   val head = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL
                       background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(Color.rgb(30, 64, 175), Color.rgb(13, 148, 136)))
-                          .apply { cornerRadius = dp(16).toFloat() }
-                      setPadding(dp(16), dp(12), dp(16), dp(12))
+                          .apply { cornerRadius = dp(18).toFloat() }
+                      setPadding(dp(16), dp(14), dp(16), dp(14))
                   }
-                  head.addView(label("랙 재고", 22f, Color.WHITE, true))
+                  val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                  top.addView(label("랙 재고", 22f, Color.WHITE, true), LinearLayout.LayoutParams(0, -2, 1f))
+                  top.addView(label("👤 ${userName()}", 13f, Color.WHITE, true).apply { background = round(Color.argb(60, 0, 0, 0), 14); setPadding(dp(10), dp(4), dp(10), dp(4)) })
+                  head.addView(top)
                   val a = st.count { it.loc.startsWith("A") }; val b = st.count { it.loc.startsWith("B") }; val f = st.count { it.loc == "평치" }
-                  head.addView(label("총 ${st.size}개 · A랙 $a · B랙 $b · 평치 $f", 14f, Color.argb(230, 255, 255, 255)))
-                  val noBl = st.count { it.bl.isBlank() }
-                  if (noBl > 0) head.addView(label("B/L 없음 ${noBl}개", 13f, Color.rgb(255, 210, 200)))
+                  val nums = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(10), 0, 0) }
+                  for ((v, n) in listOf("${st.size}" to "총재고", "$a" to "A랙", "$b" to "B랙", "$f" to "평치")) nums.addView(vbox().apply {
+                      gravity = Gravity.CENTER
+                      addView(label(v, 24f, Color.WHITE, true).apply { gravity = Gravity.CENTER })
+                      addView(label(n, 12f, Color.argb(220, 255, 255, 255)).apply { gravity = Gravity.CENTER })
+                  }, LinearLayout.LayoutParams(0, -2, 1f))
+                  head.addView(nums)
                   content.addView(head)
 
                   // 아무것도 안 찍은 빈 입고는 정리
                   if (curBatch.isNotEmpty() && contBl.isEmpty() && batchItems().isEmpty()) { curBatch = ""; batchSeq = 0; save() }
                   val q = queue()
-                  if (curBatch.isNotEmpty() || contBl.isNotEmpty()) {
-                      val c = card(Color.rgb(24, 40, 60), BLUE)
-                      c.addView(label(if (contBl.isNotEmpty()) "🚛 컨테이너 입고 중 · B/L $contBl" else "입고 진행 중 · $curBatch", 16f, Color.WHITE, true))
-                      c.addView(label("적치 대기 ${q.size}개 · 적치 완료 ${batchItems().count { it.loc.isNotEmpty() }}개 · 입고일 $batchDate", 13f, SUB))
-                      c.addView(row(btn("라벨 더 찍기", GREY) { startScan("in") }, btn("적치 ▶", TEAL) { showPlace() }))
+                  val noBl = st.count { it.bl.isBlank() }
+                  val active = curBatch.isNotEmpty() || contBl.isNotEmpty()
+
+                  // 진행 중 입고
+                  if (active) {
+                      val c = card(Color.rgb(20, 44, 48), TEAL)
+                      c.addView(label(if (contBl.isNotEmpty()) "🚛 컨테이너 입고 중" else "입고 진행 중", 13f, Color.rgb(120, 230, 210), true))
+                      c.addView(label(if (contBl.isNotEmpty()) "B/L $contBl" else curBatch, 20f, Color.WHITE, true))
+                      c.addView(label("적치 대기 ${q.size} · 적치 완료 ${batchItems().count { it.loc.isNotEmpty() }} · 입고일 $batchDate", 13f, SUB))
                       c.addView(btn(if (contBl.isNotEmpty()) "🚛 컨테이너 입고 종료" else "입고 완료 (B/L 입력)", PURPLE) { finishBatch() })
                       content.addView(c)
-                  } else {
-                      content.addView(big(btn("🚛 컨테이너 입고 (B/L 먼저)", Color.rgb(13, 120, 110)) { startContainer() }, 66, 20f))
-                      content.addView(btn("＋ 그냥 입고 · 라벨 찍기", TEAL) { contBl = ""; startScan("in") })
                   }
-                  content.addView(row(
-                      big(btn("－ 출고 (캡처)", RED) { showOut() }, 60, 17f),
-                      big(btn("⇄ 재고 이동", PURPLE) { moveSel.clear(); movedDone.clear(); lastMoveLoc = ""; moveCur = 0L; showMove() }, 60, 17f)
+
+                  // 입고
+                  content.addView(secTitle("입 고", Color.rgb(45, 212, 191)))
+                  content.addView(tileRow(
+                      if (active) tile("📷", "라벨 찍기", TEAL, 0, "입고 계속") { startScan("in") }
+                      else tile("🚛", "컨테이너 입고", TEAL, 0, "B/L 먼저 적기") { startContainer() },
+                      tile("🏗️", "적치", BLUE, q.size, if (q.isEmpty()) "대기 없음" else "대기 ${q.size}개") {
+                          if (q.isEmpty()) toast("적치할 게 없어요 · 먼저 라벨을 찍으세요") else showPlace()
+                      }
                   ))
-                  content.addView(big(btn("▦ 총재고 · 랙별 보기", BLUE) { stockRack = 0; showStock() }, 60, 18f))
-                  content.addView(row(
-                      btn("B/L 입력" + if (noBl > 0) " ($noBl)" else "", Color.rgb(90, 60, 160)) { blSel.clear(); showBl() },
-                      btn("재고 목록·대조 (${refs.size})", GREY) { showRef() }
+                  if (!active) content.addView(btn("＋ B/L 없이 그냥 입고", GREY) { contBl = ""; startScan("in") }.apply { minHeight = dp(44); textSize = 14f })
+
+                  // 재고
+                  content.addView(secTitle("재 고", Color.rgb(96, 165, 250)))
+                  content.addView(tileRow(
+                      tile("▦", "총재고", BLUE, 0, "랙별 보기·검색") { stockRack = 0; showStock() },
+                      tile("⇄", "재고 이동", PURPLE, 0, "대기열로 옮기기") { moveSel.clear(); movedDone.clear(); lastMoveLoc = ""; moveCur = 0L; showMove() }
                   ))
-                  content.addView(row(
-                      btn("📦 B/L별 입고 내역", Color.rgb(60, 50, 120)) { blvQuery = ""; showBlList() },
-                      btn("엑셀 내보내기", Color.rgb(30, 110, 70)) { exportXlsx() }
+                  content.addView(tileRow(
+                      tile("📋", "재고 대조", Color.rgb(234, 179, 8), 0, "사무실 목록 ${refs.size}") { showRef() },
+                      tile("🏷️", "B/L 입력", Color.rgb(168, 85, 247), noBl, if (noBl > 0) "B/L 없음 ${noBl}개" else "모두 입력됨") { blSel.clear(); showBl() }
                   ))
+                  content.addView(tileRow(
+                      tile("📦", "B/L별 내역", Color.rgb(99, 102, 241), 0, "입고 내역·엑셀") { blvQuery = ""; showBlList() },
+                      tile("📊", "엑셀 내보내기", Color.rgb(34, 197, 94), 0, "사무실 양식") { exportXlsx() }
+                  ))
+
+                  // 출고
+                  content.addView(secTitle("출 고", Color.rgb(248, 113, 113)))
+                  content.addView(tileRow(tile("🚚", "출고 (피킹)", RED, outRows.size, if (outRows.isEmpty()) "캡처로 목록 만들기" else "진행 중 ${outRows.size}줄") { showOut() }))
+
                   val fbTxt = when {
                       !Fb.enabled -> "공유 꺼짐 (Firebase 설정 안 됨) · 이 폰에만 저장"
                       syncErr.isNotEmpty() -> "⚠ 공유 실패: $syncErr (자동으로 다시 시도)"
                       !fetchedOnce -> "공유: 받아오는 중…"
                       else -> "공유 연결됨 ✓ ${userName()}" + if (syncAt.isNotEmpty()) " · 마지막 전송 $syncAt" else ""
                   }
-                  content.addView(label(fbTxt, 12f, if (syncErr.isNotEmpty()) RED else GREEN).apply { gravity = Gravity.CENTER })
+                  content.addView(label(fbTxt, 12f, if (syncErr.isNotEmpty()) RED else GREEN).apply { gravity = Gravity.CENTER; setPadding(0, dp(10), 0, 0) })
                   tabPage(content)
               }
 
