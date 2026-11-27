@@ -906,7 +906,7 @@ jobs:
 
               /** 입고·출고 화면의 작은 도크 지도 (좌측 | 통로 | 우측) */
               private fun dockMini(selSlot: Slot?, insSide: Char?, insGap: Slot?, insTop: Boolean, insLines: Int,
-                                   onSlot: ((Slot) -> Unit)?, onSide: ((Char) -> Unit)?): LinearLayout {
+                                   onSlot: ((Slot, Boolean) -> Unit)?, onSide: ((Char, Boolean) -> Unit)?, insGapBottom: Boolean = false): LinearLayout {
                   val box = card()
                   box.addView(row(
                       label("◀ 좌측", 12f, SUB, true).apply { gravity = Gravity.CENTER },
@@ -927,11 +927,19 @@ jobs:
                       if (on && insGap == null && insTop) col.addView(ghost(insLines))
                       for (s in l) {
                           if (on && insGap === s) {
-                              col.addView(ghost(insLines))
-                              if (insLines < s.lines) col.addView(label("빈 ${s.lines - insLines}", 10f, GREEN).apply {
+                              fun rest() = label("빈 ${s.lines - insLines}", 10f, GREEN).apply {
                                   gravity = Gravity.CENTER; setPadding(0, 0, 0, 0); background = round(Color.argb(18, 110, 226, 140), 5, GREEN, dashed = true)
                                   layoutParams = LinearLayout.LayoutParams(-1, dp(U * (s.lines - insLines))).apply { bottomMargin = dp(2) }
-                              })
+                              }
+                              val parts = ArrayList<View>()
+                              if (insGapBottom && insLines < s.lines) parts.add(rest())
+                              parts.add(ghost(insLines))
+                              if (!insGapBottom && insLines < s.lines) parts.add(rest())
+                              for (v0 in parts) {
+                                  if (onSlot != null) { var ly = 0f; v0.setOnTouchListener { vv, ev -> if (ev.action == android.view.MotionEvent.ACTION_DOWN) ly = ev.y + vv.top; false }
+                                      v0.setOnClickListener { onSlot(s, ly - (parts.first().top) > parts.sumOf { it.height } / 2f) } }
+                                  col.addView(v0)
+                              }
                               continue
                           }
                           val selOn = s === selSlot
@@ -940,13 +948,21 @@ jobs:
                               background = if (s.gap) round(Color.argb(18, 110, 226, 140), 5, GREEN, dashed = true)
                                            else round(colorOf(s.bl), 5, if (selOn) GOLD else null)
                               if (selSlot != null && !selOn && !s.gap) alpha = 0.45f
-                              if (onSlot != null) setOnClickListener { onSlot(s) }
+                              if (onSlot != null) {
+                                  var ly = 0f
+                                  setOnTouchListener { _, ev -> if (ev.action == android.view.MotionEvent.ACTION_DOWN) ly = ev.y; false }
+                                  setOnClickListener { v1 -> onSlot(s, ly > v1.height / 2f) }   // 아래 반쪽을 누르면 아래쪽
+                              }
                           }
                           col.addView(v, LinearLayout.LayoutParams(-1, dp(U * s.lines)).apply { bottomMargin = dp(2) })
                       }
                       if (on && insGap == null && !insTop) col.addView(ghost(insLines))
                       if (l.isEmpty() && !on) col.addView(label("비어 있음", 10f, Color.rgb(107, 115, 133)).apply { gravity = Gravity.CENTER; setPadding(0, dp(10), 0, dp(10)) })
-                      if (onSide != null) col.setOnClickListener { onSide(side) }
+                      if (onSide != null) {
+                          var ly = 0f
+                          col.setOnTouchListener { _, ev -> if (ev.action == android.view.MotionEvent.ACTION_DOWN) ly = ev.y; false }
+                          col.setOnClickListener { v1 -> onSide(side, ly > v1.height / 2f) }
+                      }
                       return col
                   }
                   val cols = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(6), 0, 0) }
@@ -996,7 +1012,8 @@ jobs:
                   val idx = l.indexOf(s)
                   val items = ArrayList<Pair<String, () -> Unit>>()
                   if (s.gap) {
-                      items.add(Pair("＋ 여기에 입고") { showInbound(side, s) })
+                      items.add(Pair("＋ 여기에 입고 (빈자리 위쪽)") { showInbound(side, s) })
+                      if (s.lines >= 2) items.add(Pair("＋ 여기에 입고 (빈자리 아래쪽)") { showInbound(side, s, true) })
                       items.add(Pair("크기 바꾸기 (지금 ${s.lines}줄)") { numberDialog("빈자리 줄 수", s.lines) { n -> change { s.lines = n } } })
                       items.add(Pair("메모") { textDialog("빈자리 메모", s.memo) { t -> change { s.memo = t } } })
                   } else {
@@ -1073,10 +1090,11 @@ jobs:
               }
 
               // ======================= 입고 =======================
-              private fun showInbound(presetSide: Char?, presetGap: Slot?) {
+              private fun showInbound(presetSide: Char?, presetGap: Slot?, presetBottom: Boolean = false) {
                   screen = "in"
                   var side = presetSide ?: 'L'
                   var target: Slot? = presetGap           // null = 맨 아래, 또는 빈자리
+                  var gapBottom = presetBottom            // 빈자리 안에서 아래쪽에 넣기
                   var atTop = false
                   var lines = 1
                   var redrawPos: () -> Unit = {}
@@ -1106,9 +1124,15 @@ jobs:
                   fun drawPos() {
                       c2.removeAllViews()
                       c2.addView(dockMini(null, side, target, atTop, lines,
-                          onSlot = { s -> if (s.gap) { side = sideOf(s); target = s; atTop = false; drawPos() } },
-                          onSide = { sd -> if (sd != side) { side = sd; target = null; atTop = false; drawPos() } }))
-                      c2.addView(label("빈자리(초록 점선)나 좌·우를 눌러도 돼요", 11f, Color.rgb(107, 115, 133)).apply { gravity = Gravity.CENTER })
+                          onSlot = { s, low -> if (s.gap) { side = sideOf(s); target = s; gapBottom = low; atTop = false; drawPos() } },
+                          onSide = { sd, low -> side = sd; target = null; atTop = !low; drawPos() },
+                          insGapBottom = gapBottom))
+                      c2.addView(label("빈자리 위쪽·아래쪽, 줄 맨 위·맨 아래를 눌러서 골라요", 11f, Color.rgb(107, 115, 133)).apply { gravity = Gravity.CENTER })
+                      val tg = target
+                      if (tg != null && lines < tg.lines) c2.addView(row(
+                          btn((if (!gapBottom) "✔ " else "") + "빈자리 위쪽에", if (!gapBottom) TEAL else GREY_BTN) { gapBottom = false; drawPos() },
+                          btn((if (gapBottom) "✔ " else "") + "빈자리 아래쪽에", if (gapBottom) TEAL else GREY_BTN) { gapBottom = true; drawPos() }
+                      ))
                       c2.addView(label("공간", 13f, SUB))
                       c2.addView(row(
                           btn(if (side == 'L') "✔ ◀ 좌측" else "◀ 좌측", if (side == 'L') TEAL else GREY_BTN) { if (side != 'L') { side = 'L'; target = null; atTop = false; drawPos() } },
@@ -1121,7 +1145,7 @@ jobs:
                           val pos = l.indexOf(g) + 1
                           val sel = target === g
                           c2.addView(btn((if (sel) "✔ " else "") + "빈자리 ${g.lines}줄 (위에서 ${pos}번째)" + (if (g.memo.isNotBlank()) " · ${g.memo}" else ""),
-                              if (sel) Color.rgb(30, 110, 70) else Color.rgb(40, 60, 50)) { target = g; atTop = false; drawPos() })
+                              if (sel) Color.rgb(30, 110, 70) else Color.rgb(40, 60, 50)) { target = g; gapBottom = false; atTop = false; drawPos() })
                       }
                       val selBottom = target == null && !atTop
                       c2.addView(btn((if (selBottom) "✔ " else "") + "맨 위", if (selBottom) TEAL else GREY_BTN) { target = null; atTop = false; drawPos() })
@@ -1144,7 +1168,7 @@ jobs:
                                       val g = target
                                       if (g != null && l.contains(g)) {
                                           val i = l.indexOf(g)
-                                          if (lines < g.lines) { g.lines -= lines; l.add(i, s) } else l[i] = s
+                                          if (lines < g.lines) { g.lines -= lines; if (gapBottom) l.add(i + 1, s) else l.add(i, s) } else l[i] = s
                                       } else if (atTop) l.add(0, s) else l.add(s)
                                   }
                                   log("입고", s, side)
@@ -1182,7 +1206,7 @@ jobs:
                   fun drawOpt() {
                       opt.removeAllViews()
                       val s = sel
-                      opt.addView(dockMini(s, null, null, false, 0, onSlot = { x -> if (!x.gap) { sel = x; partial = false; drawOpt() } }, onSide = null))
+                      opt.addView(dockMini(s, null, null, false, 0, onSlot = { x, _ -> if (!x.gap) { sel = x; partial = false; drawOpt() } }, onSide = null))
                       if (s == null) { opt.addView(label("나갈 B/L을 고르세요 (지도에서 눌러도 돼요)", 14f, SUB)); return }
                       val side = sideOf(s)
                       opt.addView(label("${s.bl} · ${sideName(side)} · ${s.lines}줄 · ${s.pallets}P", 16f, Color.WHITE, true))
