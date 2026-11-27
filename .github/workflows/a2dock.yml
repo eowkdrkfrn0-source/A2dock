@@ -2131,45 +2131,107 @@ jobs:
 
               /** 라벨이 안 읽힐 때: LOT 일부(뒤 4자리 등)로 재고 목록·재고에서 찾기 */
               private fun findByNumber() {
-                  val e = field("LOT 일부 (예: 뒤 4자리)", "")
-                  val box = vbox().apply { setPadding(dp(20), dp(8), dp(20), 0); addView(e) }
-                  AlertDialog.Builder(this).setTitle("번호로 찾기").setView(box)
-                      .setPositiveButton("찾기") { _, _ ->
-                          val q = e.text.toString().trim().uppercase().replace(" ", "")
-                          if (q.length < 2) { toast("2자리 이상 입력하세요"); return@setPositiveButton }
-                          if (scanMode == "move") {
-                              val hits = stock().filter { it.lot.uppercase().contains(q) }.sortedBy { locSortKey(it.loc) }
-                              if (hits.isEmpty()) { toast("재고에 '$q'가 들어간 LOT가 없어요"); return@setPositiveButton }
-                              AlertDialog.Builder(this).setTitle("'$q' 검색 · ${hits.size}개")
-                                  .setItems(hits.map { "${it.lot}\n${it.loc} · ${it.name}" }.toTypedArray()) { _, w ->
-                                      val h = hits[w]; lastAddKey = ""; addMove(Parsed(h.mk, h.lot, h.name, h.qty, h.size))
-                                  }.setNegativeButton("취소", null).show()
-                              return@setPositiveButton
+                  val wasScanning = scanning
+                  scanning = false   // 카메라 인식 잠시 멈춤 (입력·목록이 바로 뜨게)
+                  val move = scanMode == "move"
+                  val e = field("LOT 숫자 (예: 뒤 4자리)", "").apply {
+                      inputType = InputType.TYPE_CLASS_NUMBER
+                      imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+                  }
+                  val info = label("2자리 이상 누르면 바로 아래에 떠요", 13f, SUB)
+                  var abc = false
+                  val toggle = Button(this).apply {
+                      text = "ABC 키보드"; textSize = 13f; isAllCaps = false; setTextColor(Color.WHITE)
+                      background = round(GREY, 10); stateListAnimator = null; minHeight = dp(40); minimumHeight = dp(40)
+                  }
+                  val list = vbox()
+                  val box = vbox().apply {
+                      setPadding(dp(16), dp(8), dp(16), 0)
+                      addView(e)
+                      addView(row(info, toggle, weights = floatArrayOf(1.4f, 1f)))
+                      addView(ScrollView(this@RackActivity).apply { addView(list) }, LinearLayout.LayoutParams(-1, dp(330)))
+                  }
+                  lateinit var dlg: AlertDialog
+                  var first: (() -> Unit)? = null
+                  var hitCount = 0
+
+                  fun item(top: String, sub: String, color: Int, onPick: () -> Unit) {
+                      list.addView(vbox().apply {
+                          background = round(CARD, 10); setPadding(dp(12), dp(8), dp(12), dp(8))
+                          addView(label(top, 17f, color, true))
+                          if (sub.isNotBlank()) addView(label(sub, 12f, SUB).apply { maxLines = 1 })
+                          isClickable = true
+                          setOnClickListener { dlg.dismiss(); onPick() }
+                      }, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(3), 0, dp(3)) })
+                  }
+
+                  fun draw() {
+                      list.removeAllViews(); first = null; hitCount = 0
+                      val q = e.text.toString().trim().uppercase().replace(" ", "")
+                      if (q.length < 2) { info.text = "2자리 이상 누르면 바로 아래에 떠요"; return }
+                      if (move) {
+                          val hits = stock().filter { it.lot.uppercase().contains(q) }.sortedBy { locSortKey(it.loc) }
+                          hitCount = hits.size
+                          info.text = if (hits.isEmpty()) "재고에 '$q' 없음" else "${hits.size}개 · 눌러서 선택"
+                          for (h in hits.take(60)) {
+                              val act: () -> Unit = { lastAddKey = ""; addMove(Parsed(h.mk, h.lot, h.name, h.qty, h.size)) }
+                              if (first == null) first = act
+                              item(h.lot, "📍${h.loc} · ${h.name}", Color.WHITE, act)
                           }
+                      } else {
                           val placed = stock().map { it.lot }.toHashSet()
                           val inBatch = batchItems().map { it.lot }.toHashSet()
                           val hits = refs.values.filter { it.lot.uppercase().contains(q) }
                               .sortedWith(compareBy<RRef>({ it.lot in placed || it.lot in inBatch }, { it.lot }))
-                          if (hits.isEmpty()) {
-                              if (refs.isEmpty()) toast("재고 목록을 먼저 불러오세요 (홈 → 재고 목록·대조)")
-                              else toast("목록에 '$q'가 들어간 LOT가 없어요 → [직접 입력]")
-                              return@setPositiveButton
+                          hitCount = hits.size
+                          info.text = when {
+                              refs.isEmpty() -> "재고 목록이 비어 있어요"
+                              hits.isEmpty() -> "목록에 '$q' 없음"
+                              else -> "${hits.size}개 · 눌러서 선택"
                           }
-                          val labels = hits.map { r ->
+                          for (r in hits.take(60)) {
+                              val done = r.lot in inBatch || r.lot in placed
                               val tag = if (r.lot in inBatch) "  [이미 찍음]" else if (r.lot in placed) "  [재고에 있음]" else ""
-                              "${r.lot}$tag\n${r.name} · ${shortDate(r.inDate)} · ${r.bl}"
-                          }
-                          AlertDialog.Builder(this).setTitle("'$q' 검색 · ${hits.size}개")
-                              .setItems(labels.toTypedArray()) { _, w ->
-                                  val r = hits[w]
+                              val act: () -> Unit = {
                                   val mk = mkOf(r.lot)
                                   lastAddKey = ""
                                   if (mk == "Hengtong") textDialog("사이즈 (소재 사양)", "Ø", false) { sz -> lastAddKey = ""; addInbound(Parsed(mk, r.lot, r.name, r.qty, sz)) }
                                   else addInbound(Parsed(mk, r.lot, r.name, r.qty))
-                              }.setNegativeButton("취소", null).show()
+                              }
+                              if (first == null) first = act
+                              item(r.lot + tag, "${r.name} · ${shortDate(r.inDate)} · ${r.bl}", if (done) DIM else Color.WHITE, act)
+                          }
                       }
-                      .setNegativeButton("취소", null).show()
-                  e.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+                      item("✎ 직접 입력 ($q)", "", GREEN) { manualAdd(q) }
+                  }
+
+                  toggle.setOnClickListener {
+                      abc = !abc
+                      e.inputType = if (abc) InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS else InputType.TYPE_CLASS_NUMBER
+                      toggle.text = if (abc) "123 키보드" else "ABC 키보드"
+                      e.setSelection(e.text.length)
+                      (getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)?.restartInput(e)
+                  }
+                  e.addTextChangedListener(object : android.text.TextWatcher {
+                      override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                      override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                      override fun afterTextChanged(s: android.text.Editable?) { draw() }
+                  })
+                  // 완료 키: 결과가 하나면 바로 선택
+                  e.setOnEditorActionListener { _, _, _ ->
+                      val f = first
+                      if (hitCount == 1 && f != null) { dlg.dismiss(); f() }
+                      true
+                  }
+                  dlg = AlertDialog.Builder(this).setTitle("번호로 찾기").setView(box)
+                      .setNegativeButton("닫기", null).create()
+                  dlg.setOnDismissListener { if (screen == "scan" && wasScanning) scanning = true }
+                  dlg.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+                  dlg.show()
+                  e.requestFocus()
+                  e.post {
+                      (getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)?.showSoftInput(e, 0)
+                  }
               }
 
               private fun manualAdd(lot0: String = "") {
