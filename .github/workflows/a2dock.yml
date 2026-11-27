@@ -3543,9 +3543,13 @@ jobs:
                   val n = norm(text)
                   // Polyhose : 인보이스번호 + 박스번호
                   val inv = Regex("INV\\.?N[O0]\\.?[:;.]?(\\d{10})").find(n)?.groupValues?.get(1)
-                  val box = Regex("B[O0]XN[O0]\\.?[:;.]?(\\d{1,4})").find(n)?.groupValues?.get(1)
+                  // 박스번호는 3자리 (뒤에 붙는 표 숫자·S.NO 무시)
+                  val box = Regex("B[O0]XN[O0]\\.?[:;.]?(\\d{3})").find(n)?.groupValues?.get(1)
                   if (inv != null && box != null) {
-                      val prod = Regex("PH\\d{3}-\\d+").find(n)?.value ?: ""
+                      // 품명은 띄어쓰기 살린 글자에서 한 단어로만 (뒤 MTR 표 숫자 안 붙게)
+                      val up = text.uppercase()
+                      val prod = Regex("(?<![A-Z0-9])PH\\s?\\d{3}\\s?-\\s?\\d{1,2}(?![0-9])").find(up)?.value?.replace(" ", "")
+                          ?: Regex("PH\\d{3}-\\d").find(n)?.value ?: ""
                       return Parsed("Polyhose", "$inv-${box.padStart(3, '0')}", prod)
                   }
                   // Hengtong : LOT + 사이즈(소재 사양)
