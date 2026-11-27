@@ -2678,7 +2678,7 @@ jobs:
                           background = round(CARD, 14); setPadding(dp(14), dp(10), dp(14), dp(10))
                           layoutParams = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(4), 0, dp(4)) }
                           val top = LinearLayout(this@RackActivity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-                          top.addView(label(bl, 19f, if (bl.startsWith("(")) GOLD else Color.WHITE, true), LinearLayout.LayoutParams(0, -2, 1f))
+                          top.addView(label(bl, 19f, if (bl.startsWith("(")) Color.rgb(243, 201, 138) else Color.WHITE, true), LinearLayout.LayoutParams(0, -2, 1f))
                           top.addView(label("${xs.size}개", 20f, GREEN, true))
                           addView(top)
                           addView(label("입고 " + (if (ins.size <= 1) ins.firstOrNull() ?: "-" else "${ins.first()} ~ ${ins.last()}") +
