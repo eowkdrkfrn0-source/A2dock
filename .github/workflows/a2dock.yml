@@ -1469,7 +1469,7 @@ jobs:
           import java.util.Locale
           import java.util.concurrent.Executors
 
-          /** 랙 재고: A랙 1~15, B랙 1~40 (각 1~5단) + 평치 */
+          /** 랙 재고: A랙 23~34, B랙 1~36 (각 1~5단) + 평치 */
           class RackActivity : ComponentActivity() {
 
               // ---------- 데이터 ----------
@@ -1768,8 +1768,13 @@ jobs:
               }
 
               // ======================= 위치 =======================
-              private fun maxRack(z: String) = if (z == "A") 15 else 40
-              private fun pickLoc(): String = if (pickZone == "F") "평치" else "$pickZone$pickNum-$pickLev"
+              private fun minRack(z: String) = if (z == "A") 23 else 1
+              private fun maxRack(z: String) = if (z == "A") 34 else 36
+              private fun pickLoc(): String {
+                  if (pickZone == "F") return "평치"
+                  pickNum = pickNum.coerceIn(minRack(pickZone), maxRack(pickZone))
+                  return "$pickZone$pickNum-$pickLev"
+              }
               private fun locSortKey(loc: String): Int {
                   if (loc == "평치") return 900000
                   if (loc.isEmpty()) return 999999
@@ -1789,12 +1794,12 @@ jobs:
                   val p = loc.substring(1).split('-')
                   val n = p.getOrNull(0)?.toIntOrNull() ?: return
                   val l = p.getOrNull(1)?.toIntOrNull() ?: return
-                  if (z == "A" || z == "B") { pickZone = z; pickNum = n.coerceIn(1, maxRack(z)); pickLev = l.coerceIn(1, 5) }
+                  if (z == "A" || z == "B") { pickZone = z; pickNum = n.coerceIn(minRack(z), maxRack(z)); pickLev = l.coerceIn(1, 5) }
               }
 
-              private fun picker(max: Int, v: Int, onChange: (Int) -> Unit): NumberPicker =
+              private fun picker(max: Int, v: Int, min: Int = 1, onChange: (Int) -> Unit): NumberPicker =
                   NumberPicker(ContextThemeWrapper(this, android.R.style.Theme_Material)).apply {
-                      minValue = 1; maxValue = max; value = v.coerceIn(1, max); wrapSelectorWheel = false
+                      minValue = min; maxValue = max; value = v.coerceIn(min, max); wrapSelectorWheel = false
                       descendantFocusability = NumberPicker.FOCUS_BLOCK_DESCENDANTS
                       if (Build.VERSION.SDK_INT >= 29) {
                           textSize = 34f * resources.displayMetrics.scaledDensity
@@ -1805,6 +1810,7 @@ jobs:
 
               /** A랙/B랙/평치 + 휠(랙번호·단). onChange 는 값이 바뀔 때 */
               private fun locPicker(onZone: () -> Unit, onChange: () -> Unit): LinearLayout {
+                  if (pickZone != "F") pickNum = pickNum.coerceIn(minRack(pickZone), maxRack(pickZone))
                   val box = vbox()
                   val seg = LinearLayout(this).apply {
                       orientation = LinearLayout.HORIZONTAL; background = round(CARD, 12); setPadding(dp(4), dp(4), dp(4), dp(4))
@@ -1816,7 +1822,7 @@ jobs:
                           setTextColor(if (on) Color.WHITE else SUB); stateListAnimator = null
                           background = round(if (on) (if (z == "F") ORANGE else BLUE) else CARD, 9)
                           setOnClickListener {
-                              if (pickZone != z) { pickZone = z; if (z != "F") pickNum = pickNum.coerceIn(1, maxRack(z)); onZone() }
+                              if (pickZone != z) { pickZone = z; if (z != "F") pickNum = pickNum.coerceIn(minRack(z), maxRack(z)); onZone() }
                           }
                       }, LinearLayout.LayoutParams(0, dp(50), 1f).apply { setMargins(dp(2), 0, dp(2), 0) })
                   }
@@ -1831,7 +1837,7 @@ jobs:
                           addView(label(t, 12f, SUB).apply { gravity = Gravity.CENTER })
                           addView(p, LinearLayout.LayoutParams(-2, dp(150)))
                       }
-                      wheels.addView(col("${pickZone}랙 번호", picker(maxRack(pickZone), pickNum) { pickNum = it; onChange() }), LinearLayout.LayoutParams(0, -2, 1f))
+                      wheels.addView(col("${pickZone}랙 번호", picker(maxRack(pickZone), pickNum, minRack(pickZone)) { pickNum = it; onChange() }), LinearLayout.LayoutParams(0, -2, 1f))
                       wheels.addView(col("단", picker(5, pickLev) { pickLev = it; onChange() }), LinearLayout.LayoutParams(0, -2, 1f))
                       box.addView(wheels, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
                   }
@@ -2378,8 +2384,9 @@ jobs:
                   } else {
                       val max = maxRack(stockZone)
                       var r: LinearLayout? = null
-                      for (i in 1..max) {
-                          if ((i - 1) % 5 == 0) { r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }; content.addView(r) }
+                      val min = minRack(stockZone)
+                      for (i in min..max) {
+                          if ((i - min) % 5 == 0) { r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }; content.addView(r) }
                           val n = st.count { it.loc.startsWith("$stockZone$i-") }
                           val sel = stockRack == i
                           val bg = when {
