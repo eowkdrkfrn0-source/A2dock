@@ -1478,6 +1478,7 @@ jobs:
               private val hist = mutableListOf<JSONObject>()
               private val recentBl = mutableListOf<String>()
               private var curBatch = ""
+              private var contBl = ""   // 컨테이너 입고 모드: 시작할 때 적은 B/L (종료하면 그 B/L 입고 끝)
               private var batchDate = ""
               private var batchSeq = 0
               private var histN = 0L
@@ -1921,13 +1922,14 @@ jobs:
                   val q = queue()
                   if (curBatch.isNotEmpty()) {
                       val c = card(Color.rgb(24, 40, 60), BLUE)
-                      c.addView(label("입고 진행 중 · $curBatch", 16f, Color.WHITE, true))
+                      c.addView(label(if (contBl.isNotEmpty()) "🚛 컨테이너 입고 중 · B/L $contBl" else "입고 진행 중 · $curBatch", 16f, Color.WHITE, true))
                       c.addView(label("적치 대기 ${q.size}개 · 적치 완료 ${batchItems().count { it.loc.isNotEmpty() }}개 · 입고일 $batchDate", 13f, SUB))
                       c.addView(row(btn("라벨 더 찍기", GREY) { startScan("in") }, btn("적치 ▶", TEAL) { showPlace() }))
-                      c.addView(btn("입고 완료 (B/L 입력)", PURPLE) { finishBatch() })
+                      c.addView(btn(if (contBl.isNotEmpty()) "🚛 컨테이너 입고 종료" else "입고 완료 (B/L 입력)", PURPLE) { finishBatch() })
                       content.addView(c)
                   } else {
-                      content.addView(big(btn("＋ 입고 · 라벨 찍기", TEAL) { startScan("in") }, 66, 20f))
+                      content.addView(big(btn("🚛 컨테이너 입고 (B/L 먼저)", Color.rgb(13, 120, 110)) { startContainer() }, 66, 20f))
+                      content.addView(btn("＋ 그냥 입고 · 라벨 찍기", TEAL) { contBl = ""; startScan("in") })
                   }
                   content.addView(row(
                       big(btn("－ 출고 (캡처)", RED) { showOut() }, 60, 17f),
@@ -1980,7 +1982,7 @@ jobs:
                   if (mode == "in") ensureBatch()
                   val root = vroot()
                   root.addView(topBar(if (mode == "in") "입고 · 라벨 찍기" else "이동할 것 찍기",
-                      if (mode == "in") curBatch else "${moveSel.size}개", if (mode == "in") TEAL else PURPLE))
+                      if (mode == "in") (if (contBl.isNotEmpty()) "🚛 $contBl" else curBatch) else "${moveSel.size}개", if (mode == "in") TEAL else PURPLE))
 
                   val camBox = FrameLayout(this).apply { background = round(Color.BLACK, 16); clipToOutline = true }
                   val pv = PreviewView(this).apply { implementationMode = PreviewView.ImplementationMode.COMPATIBLE }
@@ -2170,7 +2172,7 @@ jobs:
                       System.currentTimeMillis() * 10 + (batchSeq % 10), p.mk, p.lot,
                       ref?.name?.takeIf { s -> s.isNotBlank() } ?: p.name,
                       ref?.qty?.takeIf { s -> s.isNotBlank() } ?: p.qty,
-                      p.size, ref?.bl ?: "", ref?.inDate?.takeIf { s -> s.isNotBlank() } ?: batchDate,
+                      p.size, if (contBl.isNotEmpty()) contBl else ref?.bl ?: "", ref?.inDate?.takeIf { s -> s.isNotBlank() } ?: batchDate,
                       "", curBatch, batchSeq
                   )
                   items.add(it)
@@ -2455,7 +2457,7 @@ jobs:
                   val bottom = vbox().apply { setPadding(0, dp(6), 0, 0) }
                   bottom.addView(row(
                       btn("라벨 더 찍기") { startScan("in") },
-                      big(btn("입고 완료", PURPLE) { finishBatch() }, 56, 18f),
+                      big(btn(if (contBl.isNotEmpty()) "컨테이너 입고 종료" else "입고 완료", PURPLE) { finishBatch() }, 56, 18f),
                       weights = floatArrayOf(1f, 1.6f)
                   ))
                   page(topBar("적치", "${placed.size} / ${batchItems().size}", BLUE), content, bottom)
@@ -2479,7 +2481,7 @@ jobs:
 
               /** [입고 완료] → B/L 입력 */
               private fun finishBatch() {
-                  if (curBatch.isEmpty()) { showHome(); return }
+                  if (curBatch.isEmpty()) { contBl = ""; save(); showHome(); return }
                   val q = queue()
                   if (q.isNotEmpty()) {
                       AlertDialog.Builder(this).setTitle("적치 안 한 게 ${q.size}개 있어요")
@@ -2491,8 +2493,28 @@ jobs:
                   askBatchBl()
               }
 
+              private fun startContainer() {
+                  textDialog("컨테이너 B/L 번호", "", true) { v ->
+                      val bl = v.trim().uppercase()
+                      if (bl.isEmpty()) { toast("B/L을 적어주세요"); return@textDialog }
+                      contBl = bl; addRecent(bl)
+                      if (curBatch.isNotEmpty() && batchItems().isEmpty()) curBatch = ""
+                      save(); startScan("in")
+                  }
+              }
+
               private fun askBatchBl() {
                   val placed = batchItems()
+                  if (contBl.isNotEmpty()) {   // 컨테이너 모드: 묻지 않고 그 B/L로 끝
+                      val bl = contBl
+                      for (x in placed) if (x.bl.isBlank()) x.bl = bl
+                      addRecent(bl)
+                      curBatch = ""; batchSeq = 0; lastPlacedLoc = ""; curId = 0L; contBl = ""
+                      save(); buzz(150)
+                      toast("🚛 B/L $bl 입고 끝 · ${placed.size}개")
+                      showHome()
+                      return
+                  }
                   if (placed.isEmpty()) { closeBatch(); return }
                   val common = placed.map { it.bl }.filter { it.isNotBlank() }.distinct()
                   val box = vbox().apply { setPadding(dp(20), dp(6), dp(20), 0) }
@@ -3284,7 +3306,7 @@ jobs:
                       o.put("refs", JSONArray().apply { refs.values.forEach { put(it.toJson()) } })
                       o.put("hist", JSONArray().apply { hist.forEach { put(it) } })
                       o.put("recent", JSONArray().apply { recentBl.forEach { put(it) } })
-                      o.put("batch", curBatch); o.put("bdate", batchDate); o.put("bseq", batchSeq); o.put("lastPlaced", lastPlacedLoc); o.put("hn", histN)
+                      o.put("batch", curBatch); o.put("cbl", contBl); o.put("bdate", batchDate); o.put("bseq", batchSeq); o.put("lastPlaced", lastPlacedLoc); o.put("hn", histN)
                       o.put("sItems", JSONObject().apply { for ((k, v) in syncedItems) put(k.toString(), v) })
                       o.put("sRefs", JSONObject().apply { for ((k, v) in syncedRefs) put(k, v) })
                       o.put("sHist", syncedHistN)
@@ -3304,7 +3326,7 @@ jobs:
                           o.optJSONArray("refs")?.let { a -> for (i in 0 until a.length()) { val r = RRef.of(a.getJSONObject(i)); refs[r.lot] = r } }
                           o.optJSONArray("hist")?.let { a -> for (i in 0 until a.length()) hist.add(a.getJSONObject(i)) }
                           o.optJSONArray("recent")?.let { a -> for (i in 0 until a.length()) recentBl.add(a.getString(i)) }
-                          curBatch = o.optString("batch"); batchDate = o.optString("bdate"); batchSeq = o.optInt("bseq")
+                          curBatch = o.optString("batch"); contBl = o.optString("cbl"); batchDate = o.optString("bdate"); batchSeq = o.optInt("bseq")
                           lastPlacedLoc = o.optString("lastPlaced"); histN = o.optLong("hn")
                           o.optJSONObject("sItems")?.let { j ->
                               for (k in j.keys()) {
