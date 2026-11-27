@@ -1622,6 +1622,7 @@ jobs:
                       "home" -> finish()
                       "scan" -> { stopCamera(); if (scanMode == "move") showMove() else showHome() }
                       "place" -> showHome()
+                      "blv2" -> showBlList()
                       else -> showHome()
                   }
               }
@@ -1937,7 +1938,10 @@ jobs:
                       btn("B/L 입력" + if (noBl > 0) " ($noBl)" else "", Color.rgb(90, 60, 160)) { blSel.clear(); showBl() },
                       btn("재고 목록·대조 (${refs.size})", GREY) { showRef() }
                   ))
-                  content.addView(btn("엑셀 내보내기", Color.rgb(30, 110, 70)) { exportXlsx() })
+                  content.addView(row(
+                      btn("📦 B/L별 입고 내역", Color.rgb(60, 50, 120)) { blvQuery = ""; showBlList() },
+                      btn("엑셀 내보내기", Color.rgb(30, 110, 70)) { exportXlsx() }
+                  ))
                   val fbTxt = when {
                       !Fb.enabled -> "공유 꺼짐 (Firebase 설정 안 됨) · 이 폰에만 저장"
                       syncErr.isNotEmpty() -> "⚠ 공유 실패: $syncErr (자동으로 다시 시도)"
@@ -2642,9 +2646,88 @@ jobs:
                       "out" -> showOut()
                       "move" -> showMove()
                       "ref" -> showRef()
+                      "blv" -> showBlList()
+                      "blv2" -> showBlDetail()
                       "place" -> showPlace()
                       else -> showHome()
                   }
+              }
+
+              // ======================= B/L별 입고 내역 (패킹 대신) =======================
+              private var blvQuery = ""
+              private var blvSel = ""
+
+              private fun showBlList() {
+                  screen = "blv"
+                  val content = vbox()
+                  val all = items.filter { it.loc.isNotEmpty() || it.batch.isNotEmpty() }
+                  val groups = all.groupBy { it.bl.ifBlank { "(B/L 없음)" } }
+                      .filter { (k, _) -> blvQuery.isBlank() || k.uppercase().contains(blvQuery.uppercase()) }
+                      .toList().sortedWith(compareByDescending<Pair<String, List<RItem>>> { p -> p.second.maxOfOrNull { it.inDate } ?: "" }.thenBy { it.first })
+                  val search = field("B/L 번호 일부 (예: 뒤 4자리)", blvQuery).apply { inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS }
+                  content.addView(search)
+                  content.addView(row(
+                      btn("검색", GREY) { blvQuery = search.text.toString().trim(); showBlList() },
+                      btn("지우기") { blvQuery = ""; showBlList() }
+                  ))
+                  content.addView(label("B/L ${groups.size}개 · 눌러서 입고 내역·엑셀", 13f, SUB).apply { setPadding(dp(4), dp(6), 0, 0) })
+                  for ((bl, xs) in groups) {
+                      val ins = xs.map { it.inDate }.filter { it.isNotBlank() }.distinct().sorted()
+                      val names = xs.map { it.name }.filter { it.isNotBlank() }.distinct()
+                      content.addView(vbox().apply {
+                          background = round(CARD, 14); setPadding(dp(14), dp(10), dp(14), dp(10))
+                          layoutParams = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(4), 0, dp(4)) }
+                          val top = LinearLayout(this@RackActivity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                          top.addView(label(bl, 19f, if (bl.startsWith("(")) GOLD else Color.WHITE, true), LinearLayout.LayoutParams(0, -2, 1f))
+                          top.addView(label("${xs.size}개", 20f, GREEN, true))
+                          addView(top)
+                          addView(label("입고 " + (if (ins.size <= 1) ins.firstOrNull() ?: "-" else "${ins.first()} ~ ${ins.last()}") +
+                              " · " + xs.mapNotNull { it.mk.ifBlank { null } }.distinct().joinToString("/"), 13f, SUB))
+                          if (names.isNotEmpty()) addView(label(names.take(2).joinToString(", ") + if (names.size > 2) " 외 ${names.size - 2}종" else "", 12f, DIM).apply { maxLines = 1 })
+                          isClickable = true
+                          setOnClickListener { blvSel = bl; showBlDetail() }
+                      })
+                  }
+                  page(topBar("B/L별 입고 내역", "${groups.size}건", Color.rgb(90, 60, 160)), content, null)
+              }
+
+              private fun blItems(bl: String) = items.filter { (it.loc.isNotEmpty() || it.batch.isNotEmpty()) && it.bl.ifBlank { "(B/L 없음)" } == bl }
+                  .sortedWith(compareBy<RItem>({ it.inDate }, { it.lot }))
+
+              private fun showBlDetail() {
+                  screen = "blv2"
+                  val bl = blvSel
+                  val xs = blItems(bl)
+                  val content = vbox()
+                  content.addView(card(Color.rgb(34, 28, 60), PURPLE).apply {
+                      addView(label(bl, 22f, Color.WHITE, true))
+                      addView(label("재고 ${xs.size}개 · 랙 ${xs.count { it.loc.isNotEmpty() && it.loc != "평치" }} · 평치 ${xs.count { it.loc == "평치" }}" +
+                          (xs.count { it.loc.isEmpty() }.takeIf { it > 0 }?.let { " · 적치 대기 $it" } ?: ""), 14f, SUB))
+                  })
+                  content.addView(big(btn("📄 입고 내역 엑셀 (패킹 대신)", Color.rgb(30, 110, 70)) { exportBl(bl) }, 58, 17f))
+                  for ((i, x) in xs.withIndex()) content.addView(itemRow(x, x.loc.ifBlank { "대기" }, GREEN, n = i + 1) { itemMenu(x) })
+                  page(topBar("입고 내역", "${xs.size}개", Color.rgb(90, 60, 160)), content, null)
+              }
+
+              private fun exportBl(bl: String) {
+                  try {
+                      val xs = blItems(bl)
+                      val rows = ArrayList<List<String>>()
+                      rows.add(listOf("B/L", bl, "", "", "", "", "", ""))
+                      rows.add(listOf("입고일", xs.map { it.inDate }.filter { it.isNotBlank() }.distinct().sorted().joinToString(", "), "", "총", "${xs.size}개", "", "작성", stamp()))
+                      rows.add(listOf(""))
+                      rows.add(listOf("No", "제조사", "품명", "LOT", "사이즈", "수량", "입고일", "로케이션"))
+                      for ((i, x) in xs.withIndex()) rows.add(listOf("${i + 1}", x.mk, x.name, x.lot, x.size, x.qty, x.inDate, x.loc.ifBlank { "적치 대기" }))
+                      val safe = bl.replace(Regex("[^A-Za-z0-9가-힣]"), "")
+                      val f = File(File(cacheDir, "x"), "입고내역_${safe}_" + SimpleDateFormat("MMdd", Locale.KOREA).format(Date()) + ".xlsx")
+                      XlsxWrite.write(f, listOf("입고내역" to rows))
+                      val uri = FileProvider.getUriForFile(this, "com.nakyung.a2dock.files", f)
+                      startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                          type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                          putExtra(Intent.EXTRA_STREAM, uri)
+                          addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                      }, "입고 내역 공유"))
+                  } catch (e: Exception) { toast("엑셀 만들기 실패: ${e.message}") }
               }
 
               // ======================= 재고 이동 =======================
