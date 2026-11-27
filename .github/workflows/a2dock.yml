@@ -3853,6 +3853,8 @@ jobs:
                   for (m in merges) if (m[1] == hdr) for (ci in m[0]..m[2]) if (top[ci].isNullOrEmpty()) top[ci] = top[m[0]] ?: ""
                   val outCi = (1..maxCi).firstOrNull { top[it]!!.contains("출고") && bot[it]!!.contains("일자") }
                   val stockCi = (1..maxCi).firstOrNull { top[it] == "재고" || bot[it] == "재고" }
+                  val inQtyCi = (1..maxCi).firstOrNull { top[it]!!.contains("입고") && bot[it]!!.contains("수량") }
+                  val remarkCi = (1..maxCi).firstOrNull { top[it] == "비고" || bot[it] == "비고" }
                   var locCi = (1..maxCi).firstOrNull { top[it]!!.contains("로케이션") || bot[it]!!.contains("로케이션") }
                   val locCol: String
                   if (locCi == null) {
@@ -3903,6 +3905,74 @@ jobs:
                   for (row in rows) for (c in row.cells) {
                       val fm = Regex("<f\\b([^>]*)>(.*?)</f>", RegexOption.DOT_MATCHES_ALL).find(c.raw) ?: continue
                       if (attr(fm.groupValues[1], "t") == "shared") attr(fm.groupValues[1], "si")?.let { masters[it] = Triple(fm.groupValues[2], row.r, c.ci) }
+                  }
+
+                  // ---- 같은 LOT 두 줄(0.5+0.5) → LOT 칸 색, 비고 "1 PLT" 병합 ----
+                  var styles = txt("xl/styles.xml") ?: ""
+                  val xfsM = Regex("<cellXfs\\b[^>]*>(.*?)</cellXfs>", RegexOption.DOT_MATCHES_ALL).find(styles)
+                  val xfs = xfsM?.let { Regex("<xf\\b[^>]*?(?:/>|>.*?</xf>)", RegexOption.DOT_MATCHES_ALL).findAll(it.groupValues[1]).map { x -> x.value }.toMutableList() } ?: mutableListOf()
+                  val xfs0 = xfs.size
+                  var fillId = -1
+                  val colored = HashMap<String, String>()
+                  fun coloredStyle(s0: String?): String? {
+                      val si = s0?.toIntOrNull() ?: 0
+                      colored[s0 ?: "0"]?.let { return it }
+                      val xf = xfs.getOrNull(si) ?: return s0
+                      if ((attr(xf, "fillId")?.toIntOrNull() ?: 0) > 1) return s0
+                      if (fillId < 0) {
+                          val fm = Regex("<fills\\b[^>]*count=\"(\\d+)\"[^>]*>", RegexOption.DOT_MATCHES_ALL).find(styles) ?: return s0
+                          fillId = fm.groupValues[1].toInt()
+                          styles = styles.replaceFirst(fm.value, fm.value.replace("count=\"${fm.groupValues[1]}\"", "count=\"${fillId + 1}\""))
+                          styles = styles.replaceFirst("</fills>", "<fill><patternFill patternType=\"solid\"><fgColor theme=\"5\" tint=\"0.79998168889431442\"/><bgColor indexed=\"64\"/></patternFill></fill></fills>")
+                      }
+                      var nx = setAttr(xf, "fillId", "$fillId")
+                      nx = setAttr(nx, "applyFill", "1")
+                      xfs.add(nx)
+                      val ns = "${xfs.size - 1}"
+                      colored[s0 ?: "0"] = ns
+                      return ns
+                  }
+                  val extraMerges = ArrayList<IntArray>()   // col, r1, r2 (옛 줄번호)
+                  run {
+                      val kept = data.filter { it.r !in del }
+                      var i = 0
+                      while (i < kept.size) {
+                          val lot = norm(cellText(cellAt(kept[i].r, lotCol)))
+                          var j = i + 1
+                          while (j < kept.size && kept[j].r == kept[j - 1].r + 1 && lot.isNotEmpty() && norm(cellText(cellAt(kept[j].r, lotCol))) == lot) j++
+                          val grp = kept.subList(i, j)
+                          val firstQty = cellText(cellAt(grp[0].r, colName(inQtyCi ?: 0))).toDoubleOrNull()
+                          if (grp.size >= 2 && firstQty != null && firstQty < 1.0) {
+                              // LOT 칸 색
+                              for (row in grp) row.cells.firstOrNull { it.col == lotCol }?.let { c ->
+                                  val open = Regex("^<c\\b[^>]*?/?>").find(c.raw)!!.value
+                                  val ns = coloredStyle(attr(open, "s"))
+                                  if (ns != null) c.raw = c.raw.replaceFirst(open, setAttr(open, "s", ns))
+                              }
+                              // 비고: 비어 있고 병합 없으면 "1 PLT" + 병합
+                              if (remarkCi != null) {
+                                  val rc = colName(remarkCi)
+                                  val r1 = grp.first().r; val r2 = grp.last().r
+                                  val merged = merges.any { it[0] <= remarkCi && remarkCi <= it[2] && it[1] <= r2 && r1 <= it[3] }
+                                  val empty = grp.all { cellText(cellAt(it.r, rc)).isBlank() }
+                                  if (!merged && empty) {
+                                      val row0 = grp.first()
+                                      val ex = row0.cells.firstOrNull { it.col == rc }
+                                      val st = ex?.let { attr(Regex("^<c\\b[^>]*?/?>").find(it.raw)!!.value, "s") }
+                                      val raw = "<c r=\"$rc${row0.r}\"" + (if (st != null) " s=\"$st\"" else "") + " t=\"inlineStr\"><is><t>1 PLT</t></is></c>"
+                                      if (ex != null) ex.raw = raw else row0.cells.add(Cell(raw, rc, row0.r))
+                                      extraMerges.add(intArrayOf(remarkCi, r1, r2))
+                                  }
+                              }
+                          }
+                          i = j
+                      }
+                  }
+                  if (xfs.size > xfs0 && xfsM != null) {
+                      val body2 = xfs.joinToString("")
+                      val open = Regex("<cellXfs\\b[^>]*>").find(xfsM.value)!!.value
+                      styles = styles.replace(xfsM.value, setAttr(open, "count", "${xfs.size}") + body2 + "</cellXfs>")
+                      entries["xl/styles.xml"] = styles.toByteArray(Charsets.UTF_8)
                   }
 
                   // ---- 줄 다시 쓰기 ----
@@ -3973,6 +4043,8 @@ jobs:
                       if (r1 == r2 && m[0] == m[2]) continue
                       mcs.add("<mergeCell ref=\"${colName(m[0])}$r1:${colName(m[2])}$r2\"/>")
                   }
+                  for (m in extraMerges) mcs.add("<mergeCell ref=\"${colName(m[0])}${nr(m[1])}:${colName(m[0])}${nr(m[2])}\"/>")
+                  if (mcs.isNotEmpty() && !suffix.contains("<mergeCells")) suffix = suffix.replaceFirst(Regex("(<phoneticPr|<conditionalFormatting|<dataValidations|<hyperlinks|<printOptions|<pageMargins)"), "<mergeCells></mergeCells>$1")
                   suffix = suffix.replace(Regex("<mergeCells\\b[^>]*>.*?</mergeCells>", RegexOption.DOT_MATCHES_ALL),
                       if (mcs.isEmpty()) "" else "<mergeCells count=\"${mcs.size}\">${mcs.joinToString("")}</mergeCells>")
                   suffix = suffix.replace(Regex("<autoFilter ref=\"([A-Z]+)(\\d+):([A-Z]+)(\\d+)\"")) { m ->
