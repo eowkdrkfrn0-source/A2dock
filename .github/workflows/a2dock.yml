@@ -2226,7 +2226,7 @@ jobs:
                           for (h in hits.take(60)) {
                               val act = { lastAddKey = ""; addMove(Parsed(h.mk, h.lot, h.name, h.qty, h.size)) }
                               if (first == null) first = act
-                              item(h.lot, "📍${h.loc} · ${h.name}", Color.WHITE, act)
+                              item(h.lot, "📍${h.loc} · ${h.name}", Color.WHITE, onPick = act)
                           }
                       } else {
                           val placed = stock().map { it.lot }.toHashSet()
@@ -2249,7 +2249,7 @@ jobs:
                                   else addInbound(Parsed(mk, r.lot, r.name, r.qty))
                               }
                               if (first == null) first = act
-                              item(r.lot + tag, "${r.name} · ${shortDate(r.inDate)} · ${r.bl}", if (done) DIM else Color.WHITE, act)
+                              item(r.lot + tag, "${r.name} · ${shortDate(r.inDate)} · ${r.bl}", if (done) DIM else Color.WHITE, onPick = act)
                           }
                       }
                       item("✎ 직접 입력 ($q)", "", GREEN) { manualAdd(q) }
