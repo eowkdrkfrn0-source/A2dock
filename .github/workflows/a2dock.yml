@@ -1714,10 +1714,15 @@ jobs:
               private fun page(top: View, content: LinearLayout, bottom: LinearLayout?) {
                   val root = vroot()
                   root.addView(top)
-                  root.addView(ScrollView(this).apply { addView(content); isFillViewport = false }, LinearLayout.LayoutParams(-1, 0, 1f))
+                  val sv = ScrollView(this).apply { addView(content); isFillViewport = false }
+                  root.addView(sv, LinearLayout.LayoutParams(-1, 0, 1f))
                   if (bottom != null) root.addView(bottom)
                   setContentView(root)
+                  // 화면 그린 뒤 지정한 줄(예: 출고 "다음")이 보이게 스크롤
+                  focusView?.let { v -> sv.post { sv.smoothScrollTo(0, (v.top - sv.height / 3).coerceAtLeast(0)) } }
+                  focusView = null
               }
+              private var focusView: View? = null
 
               private fun vbox(): LinearLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
 
@@ -2773,7 +2778,7 @@ jobs:
                       for ((i, it) in list.withIndex()) {
                           val done = it.id in outPicked
                           val next = it.id == nextId
-                          if (next) content.addView(label("▼ 다음", 12f, RED, true).apply { setPadding(dp(4), dp(6), 0, 0) })
+                          if (next) content.addView(label("▼ 다음", 12f, RED, true).apply { setPadding(dp(4), dp(6), 0, 0) }.also { v -> if (outPicked.isNotEmpty()) focusView = v })
                           content.addView(itemRow(it, if (done) "✓ 뺌" else it.loc, if (done) GREEN else Color.WHITE,
                               if (done) Color.rgb(24, 27, 33) else if (next) Color.rgb(60, 30, 34) else CARD,
                               if (done) null else if (next) RED else Color.rgb(60, 66, 80), n = i + 1, rightSize = if (done) 14f else 22f) {
