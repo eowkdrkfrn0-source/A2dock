@@ -7074,7 +7074,7 @@ jobs:
                   Triple("home", "⌂", "홈"),
                   Triple("dock", "▦", "한화오션"),
                   Triple("rack", "▤", "한울"),
-        Triple("tally", "▣", "탈리"),
+                  Triple("tally", "▣", "탈리"),
                   Triple("hist", "☰", "기록")
               )
 
