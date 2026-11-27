@@ -1744,7 +1744,23 @@ jobs:
                   overridePendingTransition(0, 0)
               }
 
+              /** 소리: 무음·진동 모드여도 들리게 미디어 음량으로 냄 */
+              private var tone: android.media.ToneGenerator? = null
+              private fun beep(ms: Long) {
+                  try {
+                      val tg = tone ?: android.media.ToneGenerator(android.media.AudioManager.STREAM_MUSIC, 100).also { tone = it }
+                      when {
+                          ms >= 300 -> tg.startTone(android.media.ToneGenerator.TONE_PROP_NACK, 400)        // 오류·없음: 삐-삐
+                          ms >= 150 -> tg.startTone(android.media.ToneGenerator.TONE_PROP_ACK, 250)         // 완료
+                          ms >= 100 -> tg.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 120)        // 인식·적치 저장
+                          ms >= 40 -> tg.startTone(android.media.ToneGenerator.TONE_PROP_BEEP2, 80)         // 체크
+                          else -> tg.startTone(android.media.ToneGenerator.TONE_PROP_PROMPT, 60)            // 이미 찍음
+                      }
+                  } catch (e: Exception) { }
+              }
+
               private fun buzz(ms: Long = 70) {
+                  beep(ms)
                   try {
                       val v = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator ?: return
                       if (Build.VERSION.SDK_INT >= 26) v.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
