@@ -1778,7 +1778,7 @@ jobs:
               private fun locSortKey(loc: String): Int {
                   if (loc == "평치") return 900000
                   if (loc.isEmpty()) return 999999
-                  val z = if (loc.startsWith("A")) 0 else 1
+                  val z = if (loc.startsWith("B")) 0 else 1   // 출고 동선: B1→B36 → A23→A34 → 평치
                   val p = loc.substring(1).split('-')
                   val n = p.getOrNull(0)?.toIntOrNull() ?: 0
                   val l = p.getOrNull(1)?.toIntOrNull() ?: 0
@@ -1981,7 +1981,7 @@ jobs:
                   ovMsg?.text = msg
               }
 
-              private fun itemRow(it: RItem, right: String = "", rightColor: Int = SUB, bg: Int = CARD, stroke: Int? = null, n: Int = it.seq, onClick: (() -> Unit)? = null): LinearLayout =
+              private fun itemRow(it: RItem, right: String = "", rightColor: Int = SUB, bg: Int = CARD, stroke: Int? = null, n: Int = it.seq, rightSize: Float = 13f, onClick: (() -> Unit)? = null): LinearLayout =
                   LinearLayout(this).apply {
                       orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
                       background = round(bg, 12, stroke); setPadding(dp(10), dp(8), dp(10), dp(8))
@@ -1992,7 +1992,7 @@ jobs:
                       val sub = listOf(it.mk, it.lot, it.size).filter { s -> s.isNotBlank() }.joinToString(" · ")
                       t.addView(label(sub + (if (it.bl.isNotBlank()) "\nB/L ${it.bl}" else ""), 12f, SUB))
                       addView(t, LinearLayout.LayoutParams(0, -2, 1f))
-                      if (right.isNotEmpty()) addView(label(right, 13f, rightColor, true))
+                      if (right.isNotEmpty()) addView(label(right, rightSize, rightColor, true))
                       if (onClick != null) setOnClickListener { onClick() }
                   }
 
@@ -2654,11 +2654,15 @@ jobs:
                       val list = items.filter { it.id in all && it.loc.isNotEmpty() }.sortedBy { locSortKey(it.loc) }
                       val miss = outRows.filter { r -> r.ids.none { id -> items.any { it.id == id && it.loc.isNotEmpty() } } }
                       content.addView(label("${outRows.size}건 읽음 · 재고 매칭 ${list.size} · 없음 ${miss.size} · 완료 ${list.count { it.id in outPicked }}", 14f, SUB, true))
-                      content.addView(label("랙 순서대로 · 뺀 건 눌러서 체크", 12f, SUB))
-                      for (it in list) {
+                      content.addView(label("순서: B1 → B36 → A23 → A34 → 평치 · 뺀 건 눌러서 체크", 12f, SUB))
+                      val nextId = list.firstOrNull { x -> x.id !in outPicked }?.id
+                      for ((i, it) in list.withIndex()) {
                           val done = it.id in outPicked
+                          val next = it.id == nextId
+                          if (next) content.addView(label("▼ 다음", 12f, RED, true).apply { setPadding(dp(4), dp(6), 0, 0) })
                           content.addView(itemRow(it, if (done) "✓ 뺌" else it.loc, if (done) GREEN else Color.WHITE,
-                              if (done) Color.rgb(24, 27, 33) else CARD, if (done) null else Color.rgb(60, 66, 80), n = 0) {
+                              if (done) Color.rgb(24, 27, 33) else if (next) Color.rgb(60, 30, 34) else CARD,
+                              if (done) null else if (next) RED else Color.rgb(60, 66, 80), n = i + 1, rightSize = if (done) 14f else 22f) {
                               if (!outPicked.add(it.id)) outPicked.remove(it.id); buzz(40); showOut()
                           }.apply { if (done) alpha = 0.55f })
                       }
