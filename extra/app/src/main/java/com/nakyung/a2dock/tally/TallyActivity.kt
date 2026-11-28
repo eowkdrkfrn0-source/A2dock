@@ -1886,6 +1886,8 @@ class TallyActivity : ComponentActivity() {
 
     private fun doSync() {
         if (syncBusy) { syncAgain = true; return }
+        // 컨 번호 등 입력하는 중이면 화면이 안 바뀌게 잠깐 미룸
+        if (currentFocus is EditText && screen != "setup") { hMain.removeCallbacks(syncRun); hMain.postDelayed(syncRun, 1500); return }
         syncBusy = true
         Thread {
             var et: String? = null; var body: String? = null; var err = ""
@@ -1914,7 +1916,9 @@ class TallyActivity : ComponentActivity() {
         val serverRev = so?.optLong("rev") ?: 0L
         val local = stateJson()
         val merged = try { TallyMerge.merge(shareBase, local, serverS, per) } catch (e: Exception) { local }
-        if (merged != local) {
+        // 글자 순서만 다른 건 같은 내용 → 화면 다시 그리지 않음
+        val same = merged == local || (try { TallyMerge.merge(null, merged, null, per) == TallyMerge.merge(null, local, null, per) } catch (e: Exception) { false })
+        if (!same) {
             applyState(merged)
             getSharedPreferences("tally2", MODE_PRIVATE).edit().putString("s", stateJson()).apply()
             seen.clear(); lastNotice.clear()
