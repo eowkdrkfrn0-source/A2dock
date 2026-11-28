@@ -1318,7 +1318,15 @@ class TallyActivity : ComponentActivity() {
         }
     }
 
-    private fun hval(coa: String, f: String): String = hdr[coa]?.get(f) ?: hdef(coa, f)
+    private fun todayYmd() = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+    /** 작업일자는 매일 오늘로 (오늘 직접 고친 경우만 그 값) */
+    private fun hval(coa: String, f: String): String {
+        if (f == "date") {
+            val h = hdr[coa]
+            return if (h != null && h["date_set"] == todayYmd() && !h["date"].isNullOrBlank()) h["date"]!! else todayYmd()
+        }
+        return hdr[coa]?.get(f) ?: hdef(coa, f)
+    }
 
     private fun resolveCntr(coa: String, input: String, self: Group): Pair<String?, String> {
         val q = input.trim().uppercase().replace(" ", "")
@@ -1337,9 +1345,31 @@ class TallyActivity : ComponentActivity() {
         return Pair(c.cntr, "✔ ${c.cntr} / 씰 ${c.seal} / TARE ${c.tare}")
     }
 
+    private val groupViews = HashMap<Group, View>()
+
+    /** 컨 지정한 다음: 같은 발신번호의 다음 미지정 묶음 (없으면 다른 발신번호) */
+    private fun nextUnassigned(g: Group): Group? {
+        val same = groups.filter { it.coa == g.coa }
+        val i = same.indexOf(g)
+        return same.drop(i + 1).firstOrNull { it.cntr.isEmpty() } ?: same.firstOrNull { it.cntr.isEmpty() }
+            ?: groups.firstOrNull { it.cntr.isEmpty() }
+    }
+
+    private fun scrollToGroup(g: Group?) {
+        if (g == null) return
+        curScroll?.postDelayed({
+            val v = groupViews[g] ?: return@postDelayed
+            val sv = curScroll ?: return@postDelayed
+            val r = android.graphics.Rect(); v.getDrawingRect(r)
+            try { (sv.getChildAt(0) as ViewGroup).offsetDescendantRectToMyCoords(v, r) } catch (e: Exception) { return@postDelayed }
+            sv.smoothScrollTo(0, (r.top - dp(90)).coerceAtLeast(0))
+        }, 120)
+    }
+
     private fun showResult() {
         stopCamera()
         screen = "result"
+        groupViews.clear()
         val root = vbox()
         val unassigned = groups.count { it.cntr.isEmpty() }
         root.addView(header("결과 · 컨테이너 지정",
@@ -1368,6 +1398,7 @@ class TallyActivity : ComponentActivity() {
                     setPadding(dp(12), dp(10), dp(12), dp(10))
                     layoutParams = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(6), 0, dp(6)) }
                 }
+                groupViews[g] = gc
                 gc.addView(label("${gi + 1}묶음  ·  ${g.bds.size}/$per  ·  ${fmt(kg)}kg", 16f, Color.WHITE, true))
                 val tv = label(g.bds.sorted().joinToString("  ") { "#$it" } + "   ✎", 15f, BLUE)
                 tv.setOnClickListener {
@@ -1401,7 +1432,9 @@ class TallyActivity : ComponentActivity() {
                     val free = list.filter { c -> groups.none { it !== g && it.coa == b.coa && it.cntr == c.cntr } }
                     AlertDialog.Builder(this).setTitle("${groupLabel(g)} 컨테이너")
                         .setItems(free.map { "${it.cntr}   씰 ${it.seal}   ${it.tare}" }.toTypedArray()) { _, w ->
-                            g.cntr = free[w].cntr; saveState(); redraw()
+                            g.cntr = free[w].cntr; saveState()
+                            val nx = nextUnassigned(g)
+                            redraw(); scrollToGroup(nx)   // 다음 묶음으로 화면 이동
                         }.setNegativeButton("취소", null).show()
                 })
                 cd.addView(gc)
@@ -1432,14 +1465,17 @@ class TallyActivity : ComponentActivity() {
 
             cd.addView(section("엑셀 정보"))
             val fields = listOf(
-                "date" to "작업일자 (비우면 오늘)", "carrier" to "선사", "bk" to "BK NO", "size" to "SIZE",
+                "date" to "작업일자 (매일 오늘로 바뀜)", "carrier" to "선사", "bk" to "BK NO", "size" to "SIZE",
                 "existing" to "기존화물·BD", "vsl" to "VSL&VOY (공란)", "shoring" to "쇼링 (공란)"
             )
             for ((f, title) in fields) {
                 cd.addView(label(title, 12f, SUB))
                 val e = edit(title, hval(b.coa, f))
                 e.addTextChangedListener(watcher {
-                    hdr.getOrPut(b.coa) { HashMap() }[f] = e.text.toString().trim(); saveState()
+                    val hm = hdr.getOrPut(b.coa) { HashMap() }
+                    hm[f] = e.text.toString().trim()
+                    if (f == "date") hm["date_set"] = todayYmd()
+                    saveState()
                 })
                 cd.addView(e)
             }
