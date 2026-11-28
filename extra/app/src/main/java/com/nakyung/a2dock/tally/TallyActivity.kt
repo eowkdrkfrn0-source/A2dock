@@ -102,6 +102,7 @@ class TallyActivity : ComponentActivity() {
     private var hdr = HashMap<String, HashMap<String, String>>()
     private var rangeText = ""
     private var exported = HashMap<String, String>()   // coa -> 보낸 시각
+    private val claims = HashMap<String, String>()     // coa -> "폰id|이름|시각" (지금 그 발신번호를 찍는 사람)
     private var byCore: Map<String, List<Pair<Booking, Item>>> = emptyMap()
 
     // ---------- 스캔 ----------
@@ -1131,6 +1132,16 @@ class TallyActivity : ComponentActivity() {
         if (!silent && error) { beep(ToneGenerator.TONE_SUP_ERROR, 400); vib(400) }
     }
 
+    private fun myId(): String = try { Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "x" } catch (e: Exception) { "x" }
+    private var takeDlg: AlertDialog? = null
+    private fun askTakeOver(coa: String, who: String) {
+        if (takeDlg?.isShowing == true) return
+        takeDlg = AlertDialog.Builder(this).setTitle("$coa 스캔 중인 사람이 있어요")
+            .setMessage("${who.ifBlank { "다른 폰" }}이(가) 10분 안에 $coa 를 찍었어요.\n같은 발신번호를 두 명이 같이 찍으면 묶음이 섞일 수 있어요.\n\n그 사람이 그만둔 게 확실할 때만 넘겨받으세요.")
+            .setPositiveButton("넘겨받기") { _, _ -> claims[coa] = "${myId()}|${Fb.userName(this)}|${System.currentTimeMillis()}"; saveState(); lastNotice.clear(); seen.clear(); toast("$coa 넘겨받음 · 이제 찍으세요") }
+            .setNegativeButton("취소", null).show()
+    }
+
     /** 이 폰이 채우는 중인 묶음 (공유 중 다른 폰이 다른 발신번호를 찍어도 서로 안 막힘) */
     private var myCoa: String
         get() = sp.getString("my", "") ?: ""
@@ -1146,6 +1157,14 @@ class TallyActivity : ComponentActivity() {
         // 2차 중복 검사
         if (history.contains(key) || groups.any { it.coa == b.coa && it.bds.contains(item.bd) }) {
             notice("d$key", "이미 스캔됨 ${b.coa} #${item.bd}", Color.LTGRAY, error = false, silent = true)
+            return
+        }
+        // 다른 폰이 이 발신번호를 찍는 중이면 막음 (묶음 섞임 사고 방지)
+        val cl = claims[b.coa]?.split("|")
+        val now0 = System.currentTimeMillis()
+        if (Fb.enabled && cl != null && cl.size >= 3 && cl[0] != myId() && now0 - (cl[2].toLongOrNull() ?: 0L) < 10 * 60 * 1000L) {
+            notice("c${b.coa}", "⛔ ${b.coa}는 ${cl[1].ifBlank { "다른 폰" }}이(가) 스캔 중 — 같은 발신번호는 한 명만", RED, error = true)
+            askTakeOver(b.coa, cl[1])
             return
         }
         var g = currentGroup()
@@ -1170,6 +1189,7 @@ class TallyActivity : ComponentActivity() {
         g.bds.add(item.bd)
         history.add(key)
         myCoa = b.coa
+        claims[b.coa] = "${myId()}|${Fb.userName(this)}|$now0"
         // 3차 중복 검사
         if (dedupe() > 0) {
             beep(ToneGenerator.TONE_SUP_ERROR, 400); vib(400)
@@ -1968,9 +1988,28 @@ class TallyActivity : ComponentActivity() {
         }.start()
     }
 
+    /** 번호 → (발신번호, 몇 번째 묶음) */
+    private fun groupPos(): Map<String, Int> {
+        val m = HashMap<String, Int>()
+        val idx = HashMap<String, Int>()
+        for (g in groups) { val i = idx.getOrDefault(g.coa, 0); idx[g.coa] = i + 1; for (bd in g.bds) m["${g.coa}:$bd"] = i }
+        return m
+    }
+
     private fun applyFetched(etag: String, serverS: String?, serverRev: Long, merged: String, same: Boolean, srvSame: Boolean) {
         if (!same) {
+            val before = groupPos()
             applyState(merged)
+            // 이미 있던 번호가 다른 묶음으로 옮겨졌으면 바로 경고 (사고 방지)
+            val after = groupPos()
+            val moved = before.filter { (k, i) -> after[k] != null && after[k] != i }.keys
+            if (moved.isNotEmpty()) {
+                val coas = moved.map { it.substringBefore(':') }.distinct()
+                beep(ToneGenerator.TONE_SUP_ERROR, 600); vib(600)
+                AlertDialog.Builder(this).setTitle("⚠ 묶음 확인 필요")
+                    .setMessage("다른 폰 작업과 합쳐지면서 묶음이 바뀌었어요.\n발신번호: ${coas.joinToString(", ")}\n번호: ${moved.take(10).joinToString(", ") { "#" + it.substringAfter(':') }}\n\n결과 화면에서 묶음을 꼭 확인하세요.")
+                    .setPositiveButton("결과 화면") { _, _ -> showResult() }.setNegativeButton("닫기", null).show()
+            }
             getSharedPreferences("tally2", MODE_PRIVATE).edit().putString("s", stateJson()).apply()
             seen.clear(); lastNotice.clear()
             if (screen == "scan") refreshScanUi() else redraw()
@@ -2038,6 +2077,7 @@ class TallyActivity : ComponentActivity() {
         o.put("hdr", ha)
         o.put("rangeText", rangeText)
         o.put("exported", JSONObject(exported as Map<*, *>))
+        o.put("claims", JSONObject(claims as Map<*, *>))
         return o.toString()
     }
 
@@ -2092,6 +2132,8 @@ class TallyActivity : ComponentActivity() {
             rangeText = o.optString("rangeText")
             exported.clear()
             o.optJSONObject("exported")?.let { ex -> ex.keys().forEach { k -> exported[k] = ex.getString(k) } }
+            claims.clear()
+            o.optJSONObject("claims")?.let { ex -> ex.keys().forEach { k -> claims[k] = ex.getString(k) } }
             if (dedupe() > 0) saveState()
         } catch (e: Exception) { }
         rebuildIndex()

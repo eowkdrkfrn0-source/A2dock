@@ -52,7 +52,7 @@ object TallyMerge {
             val m = merge3(keyed(B.optJSONArray(f), k), keyed(L.optJSONArray(f), k), keyed(S.optJSONArray(f), k))
             out.put(f, JSONArray(m.values.map { JSONObject(it) }))
         }
-        for (f in listOf("ranges", "hdr", "exported")) {
+        for (f in listOf("ranges", "hdr", "exported", "claims")) {
             val m = merge3(objMap(B.optJSONObject(f)), objMap(L.optJSONObject(f)), objMap(S.optJSONObject(f)))
             val o = JSONObject(); for ((k, v) in m) o.put(k, if (v.startsWith("[")) JSONArray(v) else if (v.startsWith("{")) JSONObject(v) else v)
             out.put(f, o)
