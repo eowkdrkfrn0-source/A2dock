@@ -1917,7 +1917,9 @@ class TallyActivity : ComponentActivity() {
 
     private fun requestSync(delay: Long = 700) {
         if (!Fb.enabled) return
-        hMain.removeCallbacks(syncRun); hMain.postDelayed(syncRun, delay)
+        // 스캔 중엔 2초 모아서 한 번에 (카메라 인식이 버벅이지 않게)
+        val d = if (screen == "scan" && delay > 0) maxOf(delay, 2000L) else delay
+        hMain.removeCallbacks(syncRun); hMain.postDelayed(syncRun, d)
     }
 
     private fun doSync() {
@@ -1947,13 +1949,26 @@ class TallyActivity : ComponentActivity() {
     }
 
     private fun onFetched(etag: String, body: String?) {
-        val so = try { if (body.isNullOrBlank() || body.trim() == "null") null else JSONObject(body) } catch (e: Exception) { null }
-        val serverS = so?.optString("s")?.ifBlank { null }
-        val serverRev = so?.optLong("rev") ?: 0L
         val local = stateJson()
-        val merged = try { TallyMerge.merge(shareBase, local, serverS, per) } catch (e: Exception) { local }
-        // 글자 순서만 다른 건 같은 내용 → 화면 다시 그리지 않음
-        val same = merged == local || (try { TallyMerge.merge(null, merged, null, per) == TallyMerge.merge(null, local, null, per) } catch (e: Exception) { false })
+        val base = shareBase
+        // 합치기 계산은 백그라운드에서 (화면·카메라 안 멈추게)
+        Thread {
+            val so = try { if (body.isNullOrBlank() || body.trim() == "null") null else JSONObject(body) } catch (e: Exception) { null }
+            val serverS = so?.optString("s")?.ifBlank { null }
+            val serverRev = so?.optLong("rev") ?: 0L
+            val merged = try { TallyMerge.merge(base, local, serverS, per) } catch (e: Exception) { local }
+            // 글자 순서만 다른 건 같은 내용 → 화면 다시 그리지 않음
+            val same = merged == local || (try { TallyMerge.merge(null, merged, null, per) == TallyMerge.merge(null, local, null, per) } catch (e: Exception) { false })
+            val srvSame = serverS != null && (serverS == local || (try { TallyMerge.merge(null, serverS, null, per) == TallyMerge.merge(null, merged, null, per) } catch (e: Exception) { false }))
+            hMain.post {
+                // 계산하는 사이 이 폰에서 또 찍었으면 처음부터 다시
+                if (stateJson() != local) { syncBusy = false; doSync(); return@post }
+                applyFetched(etag, serverS, serverRev, merged, same, srvSame)
+            }
+        }.start()
+    }
+
+    private fun applyFetched(etag: String, serverS: String?, serverRev: Long, merged: String, same: Boolean, srvSame: Boolean) {
         if (!same) {
             applyState(merged)
             getSharedPreferences("tally2", MODE_PRIVATE).edit().putString("s", stateJson()).apply()
@@ -1961,8 +1976,7 @@ class TallyActivity : ComponentActivity() {
             if (screen == "scan") refreshScanUi() else redraw()
         }
         val canon = stateJson()
-        if (serverS != null && serverS == canon) { syncDone(canon); return }
-        if (serverS != null && (try { TallyMerge.merge(null, serverS, null, per) } catch (e: Exception) { "" }) == (try { TallyMerge.merge(null, canon, null, per) } catch (e: Exception) { "x" })) { syncDone(canon); return }
+        if (serverS != null && (serverS == canon || (same && srvSame))) { syncDone(canon); return }
         val rev = maxOf(serverRev, System.currentTimeMillis()) + 1
         val out = JSONObject().put("rev", rev).put("by", com.nakyung.a2dock.Fb.userName(this)).put("s", canon).toString()
         Thread {
