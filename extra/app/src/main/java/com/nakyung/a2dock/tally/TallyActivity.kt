@@ -1131,7 +1131,15 @@ class TallyActivity : ComponentActivity() {
         if (!silent && error) { beep(ToneGenerator.TONE_SUP_ERROR, 400); vib(400) }
     }
 
-    private fun currentGroup(): Group? = groups.lastOrNull()?.takeIf { it.bds.size < per }
+    /** 이 폰이 채우는 중인 묶음 (공유 중 다른 폰이 다른 발신번호를 찍어도 서로 안 막힘) */
+    private var myCoa: String
+        get() = sp.getString("my", "") ?: ""
+        set(v) { sp.edit().putString("my", v).apply() }
+    private fun currentGroup(): Group? {
+        val m = myCoa
+        return if (m.isNotEmpty()) groups.lastOrNull { it.coa == m && it.bds.size < per }
+        else groups.lastOrNull()?.takeIf { it.bds.size < per }
+    }
 
     private fun assign(b: Booking, item: Item) {
         val key = "${b.coa}:${item.bd}"
@@ -1146,6 +1154,10 @@ class TallyActivity : ComponentActivity() {
             return
         }
         if (g == null) {
+            // 같은 발신번호로 덜 찬 묶음이 있으면(다른 폰이 하다 멈춘 것) 이어서 채움
+            g = groups.lastOrNull { it.coa == b.coa && it.bds.size < per }
+        }
+        if (g == null) {
             val c = cap(b.coa)
             val cnt = groups.count { it.coa == b.coa }
             if (c > 0 && cnt >= c) {
@@ -1157,6 +1169,7 @@ class TallyActivity : ComponentActivity() {
         }
         g.bds.add(item.bd)
         history.add(key)
+        myCoa = b.coa
         // 3차 중복 검사
         if (dedupe() > 0) {
             beep(ToneGenerator.TONE_SUP_ERROR, 400); vib(400)
