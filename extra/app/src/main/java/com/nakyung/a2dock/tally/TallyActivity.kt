@@ -2,6 +2,7 @@ package com.nakyung.a2dock.tally
 
 import com.nakyung.a2dock.BuildInfo
 import com.nakyung.a2dock.Gate
+import com.nakyung.a2dock.Fb
 import com.nakyung.a2dock.SplashView
 
 import android.Manifest
@@ -173,10 +174,13 @@ class TallyActivity : ComponentActivity() {
         val pa = pendingApk
         if (pa != null && (Build.VERSION.SDK_INT < 26 || packageManager.canRequestPackageInstalls())) { pendingApk = null; installApk(pa); return }
         Gate.resume(this)   // 재고관리 앱의 인터넷·업데이트 확인
+        startShare()
     }
 
     override fun onPause() {
         Gate.pause(this)
+        shareGen++
+        if (stateJson() != shareBase) requestSync(0)   // 나가기 전에 올리기
         super.onPause()
     }
 
@@ -427,6 +431,11 @@ class TallyActivity : ComponentActivity() {
         screen = "setup"
         val root = vbox()
         val hd = heroTop()
+        if (Fb.enabled) hd.addView(label(when {
+            shareErr.isNotEmpty() -> "⚠ 공유 실패: $shareErr (자동으로 다시 시도)"
+            shareOk -> "● 공유 중 · 다른 폰과 같은 탈리"
+            else -> "공유: 받아오는 중…"
+        }, 12f, if (shareErr.isNotEmpty()) Color.rgb(255, 200, 190) else Color.argb(220, 200, 255, 220)).apply { setPadding(0, dp(6), 0, 0) })
         hd.setOnClickListener {
             if (testUnlocked) return@setOnClickListener
             testTaps++
@@ -1831,6 +1840,107 @@ class TallyActivity : ComponentActivity() {
     // ======================= 저장 =======================
     private fun saveState() {
         getSharedPreferences("tally2", MODE_PRIVATE).edit().putString("s", stateJson()).apply()
+        requestSync()
+    }
+
+    // ======================= 서버 공유 (여러 폰이 같은 탈리) =======================
+    // 서버 tally = {rev, by, s}. 올릴 땐 ETag 조건부 쓰기 → 그 사이 다른 폰이 썼으면 받아서 합친 뒤 다시 올림 (덮어쓰기 없음)
+    private val sp by lazy { getSharedPreferences("tally_sync", MODE_PRIVATE) }
+    private var shareBase: String?
+        get() = sp.getString("base", null)
+        set(v) { sp.edit().putString("base", v).apply() }
+    private val hMain = android.os.Handler(android.os.Looper.getMainLooper())
+    private var shareGen = 0
+    private var syncBusy = false
+    private var syncAgain = false
+    private var shareErr = ""
+    private var shareOk = false
+    private val syncRun = Runnable { doSync() }
+
+    private fun fbUrl(path: String) = "${BuildInfo.FB_URL.trim().trimEnd('/')}/$path.json?auth=${BuildInfo.FB_KEY.trim()}"
+
+    private fun startShare() {
+        if (!Fb.enabled) return
+        val gen = ++shareGen
+        requestSync(0)
+        Fb.listen("tally/rev", { shareGen == gen }) { hMain.post { if (shareGen == gen) requestSync(300) } }
+    }
+
+    private fun requestSync(delay: Long = 700) {
+        if (!Fb.enabled) return
+        hMain.removeCallbacks(syncRun); hMain.postDelayed(syncRun, delay)
+    }
+
+    private fun doSync() {
+        if (syncBusy) { syncAgain = true; return }
+        syncBusy = true
+        Thread {
+            var et: String? = null; var body: String? = null; var err = ""
+            try {
+                val c = java.net.URL(fbUrl("tally")).openConnection() as java.net.HttpURLConnection
+                c.setRequestProperty("X-Firebase-ETag", "true")
+                c.connectTimeout = 15000; c.readTimeout = 40000
+                if (c.responseCode != 200) throw Exception("HTTP ${c.responseCode}")
+                et = c.getHeaderField("ETag")
+                body = c.inputStream.bufferedReader().use { it.readText() }
+            } catch (e: Exception) { err = e.message ?: "연결 실패" }
+            val e2 = et; val b2 = body
+            hMain.post { if (err.isNotEmpty() || e2 == null) syncFail(err.ifEmpty { "ETag 없음" }) else onFetched(e2, b2) }
+        }.start()
+    }
+
+    private fun syncFail(msg: String) {
+        syncBusy = false; shareErr = msg; shareOk = false
+        if (screen == "setup") redraw()
+        hMain.removeCallbacks(syncRun); hMain.postDelayed(syncRun, 10000)
+    }
+
+    private fun onFetched(etag: String, body: String?) {
+        val so = try { if (body.isNullOrBlank() || body.trim() == "null") null else JSONObject(body) } catch (e: Exception) { null }
+        val serverS = so?.optString("s")?.ifBlank { null }
+        val serverRev = so?.optLong("rev") ?: 0L
+        val local = stateJson()
+        val merged = try { TallyMerge.merge(shareBase, local, serverS, per) } catch (e: Exception) { local }
+        if (merged != local) {
+            applyState(merged)
+            getSharedPreferences("tally2", MODE_PRIVATE).edit().putString("s", stateJson()).apply()
+            seen.clear(); lastNotice.clear()
+            if (screen == "scan") refreshScanUi() else redraw()
+        }
+        val canon = stateJson()
+        if (serverS != null && serverS == canon) { syncDone(canon); return }
+        if (serverS != null && (try { TallyMerge.merge(null, serverS, null, per) } catch (e: Exception) { "" }) == (try { TallyMerge.merge(null, canon, null, per) } catch (e: Exception) { "x" })) { syncDone(canon); return }
+        val rev = maxOf(serverRev, System.currentTimeMillis()) + 1
+        val out = JSONObject().put("rev", rev).put("by", com.nakyung.a2dock.Fb.userName(this)).put("s", canon).toString()
+        Thread {
+            var code = -1
+            try {
+                val c = java.net.URL(fbUrl("tally")).openConnection() as java.net.HttpURLConnection
+                c.requestMethod = "PUT"; c.doOutput = true
+                c.connectTimeout = 15000; c.readTimeout = 40000
+                c.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                c.setRequestProperty("if-match", etag)
+                c.outputStream.use { it.write(out.toByteArray(Charsets.UTF_8)) }
+                code = c.responseCode
+                try { (if (code in 200..299) c.inputStream else c.errorStream)?.close() } catch (e: Exception) { }
+            } catch (e: Exception) { }
+            hMain.post {
+                when (code) {
+                    200 -> syncDone(canon)
+                    412 -> { syncBusy = false; doSync() }        // 그 사이 다른 폰이 씀 → 다시 받아 합치기
+                    else -> syncFail("올리기 실패 ($code)")
+                }
+            }
+        }.start()
+    }
+
+    private fun syncDone(canon: String) {
+        shareBase = canon
+        syncBusy = false
+        val wasErr = shareErr.isNotEmpty() || !shareOk
+        shareErr = ""; shareOk = true
+        if (wasErr && screen == "setup") redraw()
+        if (syncAgain || stateJson() != canon) { syncAgain = false; requestSync() }
     }
 
     private fun stateJson(): String {
